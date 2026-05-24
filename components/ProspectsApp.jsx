@@ -11,7 +11,7 @@ const COLUMNS = [
   { key: 'rating',            label: 'Rating' },
   { key: 'stage',             label: 'Stage' },
   { key: 'emails_sent',       label: '#' },
-  { key: 'days_ago',          label: 'Days Ago' },
+  { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
   { key: 'claude_chat_link',  label: 'Chat' },
 ];
@@ -43,37 +43,44 @@ const FILTERS_KEY = 'bloomtrack:filters:v1';
 // Stage metadata. Each entry pairs a Lucide-style icon name (see Icon
 // component) with a warm-paper-friendly bg/border. The `faded` flag dims
 // the row for stages that are effectively dead-ends.
+// Bg + border colors are deliberately saturated so the chip stands apart
+// from the paper bg and the left-edge stripe reads at a glance. The Email
+// series progresses through a warm tan→bronze gradient so you can clock
+// "where in the funnel" without reading the number.
 const STAGE_META = {
-  New:        { icon: 'sparkle',        bg: 'transparent', border: '#B48EAD' },
-  'Email 1':  { icon: 'send',           bg: '#F2EAE0',     border: '#C8B79C' },
-  'Email 2':  { icon: 'send',           bg: '#EBE0D2',     border: '#BFAA8C' },
-  'Email 3':  { icon: 'send',           bg: '#E2D4C2',     border: '#B59C7B' },
-  'Email 4':  { icon: 'send',           bg: '#D8C8B5',     border: '#A88E6A' },
-  'Email 5':  { icon: 'send',           bg: '#CDBAA6',     border: '#988059' },
-  'Email 6':  { icon: 'send',           bg: '#C2AC97',     border: '#88714A' },
-  'Email 7':  { icon: 'send',           bg: '#B89F8B',     border: '#79633E' },
-  Recycled:   { icon: 'recycle',        bg: '#F2DCC8',     border: '#C8895A' },
-  Rekindled:  { icon: 'flame',          bg: '#FBE0C2',     border: '#D9904A' },
-  Replied:    { icon: 'message',        bg: '#DDE9CC',     border: '#7FA567' },
-  Interested: { icon: 'heart',          bg: '#C8E4BF',     border: '#5B9F4F' },
-  Potential:  { icon: 'trending-up',    bg: '#FBDFC2',     border: '#D4894A' },
-  Nudge:      { icon: 'bell',           bg: '#F5E9B8',     border: '#BFA94A' },
-  Booked:     { icon: 'calendar-check', bg: '#B5DEB5',     border: '#3F8C3F' },
-  Unread:     { icon: 'mail-open',      bg: '#E6DECF',     border: '#A89A85' },
-  Lost:       { icon: 'x-circle',       bg: '#E2DAD0',     border: '#998E81', faded: true },
-  Closed:     { icon: 'check-circle',   bg: '#C9E5C9',     border: '#3F8C3F' },
+  New:        { icon: 'sparkle',        bg: '#F4E5E9',     border: '#8E6A8D' },
+  'Email 1':  { icon: 'send',           bg: '#F4E4CB',     border: '#A8895E' },
+  'Email 2':  { icon: 'send',           bg: '#EFD7B5',     border: '#9A774A' },
+  'Email 3':  { icon: 'send',           bg: '#E8C99D',     border: '#8B6638' },
+  'Email 4':  { icon: 'send',           bg: '#DFBA85',     border: '#7C572A' },
+  'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
+  'Email 6':  { icon: 'send',           bg: '#C49558',     border: '#5E3A12' },
+  'Email 7':  { icon: 'send',           bg: '#B2814A',     border: '#4E2E0B' },
+  Recycled:   { icon: 'recycle',        bg: '#F2D2B3',     border: '#B8723E' },
+  Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
+  Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
+  Interested: { icon: 'heart',          bg: '#B6DCAB',     border: '#3D8030' },
+  Potential:  { icon: 'trending-up',    bg: '#FBCEA3',     border: '#B86A2A' },
+  Nudge:      { icon: 'bell',           bg: '#F2DF92',     border: '#9C8425' },
+  Booked:     { icon: 'calendar-check', bg: '#A4D7A4',     border: '#1F7A1F' },
+  Unread:     { icon: 'mail-open',      bg: '#DDD2BD',     border: '#8B7A5E' },
+  Lost:       { icon: 'x-circle',       bg: '#D6CCBD',     border: '#7A6E5E', faded: true },
+  Closed:     { icon: 'check-circle',   bg: '#B5DBB5',     border: '#296629' },
 };
 
 // Rating metadata. Stored value in DB is still the emoji string (we don't
 // want to migrate data). We just present it as a colored icon.
+// `filled` makes the icon render as a solid colored badge instead of an
+// outline — way easier to scan as a "rating chip". `x-circle` stays
+// outlined since filling it would hide its internal X mark.
 const RATING_META = {
-  '💚': { icon: 'heart',      color: '#4F9E4F', bg: '#DEEFD6', label: 'Green' },
-  '💙': { icon: 'heart',      color: '#5A85A6', bg: '#D8E5F0', label: 'Blue' },
-  '🟠': { icon: 'circle-dot', color: '#D4894A', bg: '#FBE2C9', label: 'Orange' },
-  '⭐':  { icon: 'star',       color: '#BFA94A', bg: '#FBF3CC', label: 'Star' },
-  '🔥': { icon: 'flame',      color: '#C2543F', bg: '#FBD2C9', label: 'Hot' },
-  '🟡': { icon: 'circle-dot', color: '#BFA94A', bg: '#FBF3CC', label: 'Yellow' },
-  '✖️': { icon: 'x-circle',   color: '#998E81', bg: '#E4DAD0', label: 'Skip' },
+  '💚': { icon: 'heart',      filled: true,  color: '#3D8030', bg: '#D2E7BD', label: 'Green' },
+  '💙': { icon: 'heart',      filled: true,  color: '#3A6A8B', bg: '#C6D9EA', label: 'Blue' },
+  '🟠': { icon: 'circle-dot', filled: true,  color: '#B86A2A', bg: '#FBCEA3', label: 'Orange' },
+  '⭐':  { icon: 'star',       filled: true,  color: '#9C8425', bg: '#F2DF92', label: 'Star' },
+  '🔥': { icon: 'flame',      filled: true,  color: '#B23A28', bg: '#FBC4B7', label: 'Hot' },
+  '🟡': { icon: 'circle-dot', filled: true,  color: '#A39024', bg: '#F4E8A0', label: 'Yellow' },
+  '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
 };
 
 function stageStyle(s) {
@@ -102,12 +109,14 @@ function daysBetween(dateStr) {
   );
   return Math.floor((today - then) / 86400000);
 }
+// Days-since-contact color scale. Picked to harmonize with STAGE_META
+// borders so the column doesn't look like a foreign element.
 function daysAgoColor(n) {
   if (n == null) return '#8A8194';
-  if (n <= 2) return '#2F8C2F';      // green
-  if (n <= 5) return '#C8B85A';      // amber
-  if (n <= 10) return '#D4894A';     // orange
-  return '#C2543F';                  // red
+  if (n <= 2) return '#3D8030';      // fresh green
+  if (n <= 5) return '#9C8425';      // warm amber
+  if (n <= 10) return '#B86A2A';     // burnt orange
+  return '#B23A28';                  // alarm red
 }
 function normalizeDomainHref(domain) {
   if (!domain) return '#';
@@ -128,11 +137,14 @@ function normalizeChatHref(url) {
 // dependency on lucide-react (which would also need edge-runtime sanity
 // checks).
 // ─────────────────────────────────────────────────────────────────────────
-function Icon({ name, className = 'w-4 h-4', strokeWidth = 2 }) {
+function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) {
+  // `filled=true` makes shape icons (heart, star, flame, circle-dot, x-circle,
+  // check-circle) read as solid badges instead of outlines — used by the
+  // rating swatches where the icon IS the chit.
   const common = {
     className,
     viewBox: '0 0 24 24',
-    fill: 'none',
+    fill: filled ? 'currentColor' : 'none',
     stroke: 'currentColor',
     strokeWidth,
     strokeLinecap: 'round',
@@ -1067,7 +1079,7 @@ export default function ProspectsApp({ stages, ratings }) {
                       data-row-id={p.id}
                       data-active-row={isActive ? 'true' : undefined}
                       ref={(el) => (rowRefs.current[p.id] = el)}
-                      className={`group border-b border-line/60 transition hover:bg-blush-soft/40 ${
+                      className={`group border-b border-line transition hover:bg-blush-soft/70 ${
                         highlighted ? 'ring-2 ring-mauve ring-inset' : ''
                       }`}
                       style={rowStyle}
@@ -1095,7 +1107,11 @@ export default function ProspectsApp({ stages, ratings }) {
                           />
                         </button>
                       </td>
-                      <EditableCell value={p.name} onSave={(v) => updateProspect(p.id, { name: v })} />
+                      <EditableCell
+                        value={p.name}
+                        onSave={(v) => updateProspect(p.id, { name: v })}
+                        displayClassName="font-medium text-charcoal"
+                      />
                       <EditableCell
                         value={p.business_name}
                         onSave={(v) => updateProspect(p.id, { business_name: v })}
@@ -1306,7 +1322,7 @@ const FilterPanel = forwardRef(function FilterPanel(
                     className="w-5 h-5 rounded-full border flex items-center justify-center shrink-0"
                     style={{ backgroundColor: rm.bg, borderColor: rm.color, color: rm.color }}
                   >
-                    <Icon name={rm.icon} className="w-3 h-3" />
+                    <Icon name={rm.icon} filled={rm.filled} className="w-3 h-3" />
                   </span>
                   {rm.label || r}
                 </span>
@@ -1665,7 +1681,11 @@ function RatingCell({ value, options, onChange }) {
         className="w-7 h-7 rounded-full border flex items-center justify-center transition hover:brightness-95"
         title={m?.label || 'Set rating'}
       >
-        {m ? <Icon name={m.icon} className="w-3.5 h-3.5" /> : <span className="text-xs">—</span>}
+        {m ? (
+          <Icon name={m.icon} filled={m.filled} className="w-3.5 h-3.5" />
+        ) : (
+          <span className="text-xs">—</span>
+        )}
       </button>
       {open && (
         <div className="absolute z-20 mt-1.5 left-0 bg-surface border border-line rounded-xl shadow-card p-1.5 flex flex-col gap-1">
@@ -1689,7 +1709,7 @@ function RatingCell({ value, options, onChange }) {
                 }`}
                 title={rm.label || r}
               >
-                <Icon name={rm.icon} className="w-3.5 h-3.5" />
+                <Icon name={rm.icon} filled={rm.filled} className="w-3.5 h-3.5" />
               </button>
             );
           })}
