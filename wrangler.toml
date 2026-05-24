@@ -1,0 +1,18 @@
+# Bloomtrack · Cloudflare Pages config.
+# This file is used by:
+#   • `npx wrangler pages dev` (local preview against the .vercel/output build)
+#   • `setupDevPlatform()` in next.config.js (local `next dev`)
+#
+# The actual production binding is configured in the Cloudflare Pages
+# dashboard (Settings → Functions → D1 database bindings). This file
+# mirrors that so dev matches prod.
+
+name = "bloomtrack"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bloomtrack"
+database_id = "ab941724-dbee-4420-bfe4-d7fa5a27d3ea"

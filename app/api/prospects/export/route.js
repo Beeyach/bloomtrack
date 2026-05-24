@@ -1,5 +1,7 @@
 import { getDb } from '@/lib/db';
 
+export const runtime = 'edge';
+
 function csvEscape(v) {
   if (v == null) return '';
   const s = String(v);
@@ -17,27 +19,28 @@ export async function GET(req) {
   const ratingFilter = searchParams.getAll('rating');
 
   const where = [];
-  const params = {};
+  const values = [];
   if (search) {
     where.push(`(
-      COALESCE(name,'') LIKE @q OR
-      COALESCE(business_name,'') LIKE @q OR
-      COALESCE(email,'') LIKE @q OR
-      COALESCE(domain,'') LIKE @q OR
-      COALESCE(stage,'') LIKE @q OR
-      COALESCE(rating,'') LIKE @q
+      COALESCE(name,'') LIKE ? OR
+      COALESCE(business_name,'') LIKE ? OR
+      COALESCE(email,'') LIKE ? OR
+      COALESCE(domain,'') LIKE ? OR
+      COALESCE(stage,'') LIKE ? OR
+      COALESCE(rating,'') LIKE ?
     )`);
-    params.q = `%${search}%`;
+    const q = `%${search}%`;
+    values.push(q, q, q, q, q, q);
   }
   if (stageFilter.length > 0) {
-    const placeholders = stageFilter.map((_, i) => `@st${i}`).join(',');
+    const placeholders = stageFilter.map(() => '?').join(',');
     where.push(`stage IN (${placeholders})`);
-    stageFilter.forEach((s, i) => (params[`st${i}`] = s));
+    stageFilter.forEach((s) => values.push(s));
   }
   if (ratingFilter.length > 0) {
-    const placeholders = ratingFilter.map((_, i) => `@r${i}`).join(',');
+    const placeholders = ratingFilter.map(() => '?').join(',');
     where.push(`rating IN (${placeholders})`);
-    ratingFilter.forEach((s, i) => (params[`r${i}`] = s));
+    ratingFilter.forEach((s) => values.push(s));
   }
 
   const headers = [
@@ -56,7 +59,8 @@ export async function GET(req) {
   const sql = `SELECT ${headers.join(', ')}
                FROM prospects ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                ORDER BY id ASC`;
-  const rows = db.prepare(sql).all(params);
+  const { results } = await db.prepare(sql).bind(...values).all();
+  const rows = results || [];
 
   const lines = [headers.join(',')];
   for (const r of rows) {

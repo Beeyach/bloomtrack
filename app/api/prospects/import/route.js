@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDb, STAGES, RATINGS } from '@/lib/db';
 
+export const runtime = 'edge';
+
 // Minimal CSV parser supporting quoted fields and embedded commas/newlines.
 function parseCsv(text) {
   const rows = [];
@@ -217,12 +219,10 @@ export async function POST(req) {
     });
   }
 
-  const existingEmails = new Set(
-    db
-      .prepare("SELECT LOWER(email) AS e FROM prospects WHERE email IS NOT NULL AND email != ''")
-      .all()
-      .map((r) => r.e)
-  );
+  const existingRes = await db
+    .prepare("SELECT LOWER(email) AS e FROM prospects WHERE email IS NOT NULL AND email != ''")
+    .all();
+  const existingEmails = new Set((existingRes.results || []).map((r) => r.e));
   const seenInBatch = new Set();
   const toInsert = [];
   let skipped = 0;
@@ -245,14 +245,29 @@ export async function POST(req) {
     });
   }
 
-  const stmt = db.prepare(`
-    INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, created_at, updated_at)
-    VALUES (@name, @business_name, @email, @domain, @rating, @stage, @emails_sent, @last_contact_date, @claude_chat_link, @gmail_labels, datetime('now'), datetime('now'))
-  `);
-  const insertMany = db.transaction((rs) => {
-    for (const r of rs) stmt.run(r);
-  });
-  insertMany(toInsert);
+  // D1 has no equivalent of better-sqlite3's synchronous db.transaction().
+  // We use db.batch() instead — it runs the prepared statements atomically
+  // in a single round trip.
+  const insertSql = `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`;
+  const stmt = db.prepare(insertSql);
+  const batchStmts = toInsert.map((r) =>
+    stmt.bind(
+      r.name,
+      r.business_name,
+      r.email,
+      r.domain,
+      r.rating,
+      r.stage,
+      r.emails_sent,
+      r.last_contact_date,
+      r.claude_chat_link,
+      r.gmail_labels
+    )
+  );
+  if (batchStmts.length > 0) {
+    await db.batch(batchStmts);
+  }
 
   return NextResponse.json({ imported: toInsert.length, skipped });
 }

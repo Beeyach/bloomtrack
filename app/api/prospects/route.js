@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getDb, STAGES, RATINGS } from '@/lib/db';
 
+// D1 is only available in the edge runtime on Cloudflare Pages.
+export const runtime = 'edge';
+
 const SELECT_COLS =
   'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at';
 
@@ -14,27 +17,30 @@ export async function GET(req) {
   const sort = searchParams.get('sort') || 'default';
   const dir = searchParams.get('dir') === 'desc' ? 'DESC' : 'ASC';
 
+  // D1 uses positional `?` placeholders, not named `@name` params like
+  // better-sqlite3. We collect bind values in order as we build the WHERE.
   const where = [];
-  const params = {};
+  const values = [];
 
   if (search) {
     where.push(`(
-      COALESCE(name,'') LIKE @q OR
-      COALESCE(business_name,'') LIKE @q OR
-      COALESCE(email,'') LIKE @q OR
-      COALESCE(domain,'') LIKE @q OR
-      COALESCE(stage,'') LIKE @q OR
-      COALESCE(rating,'') LIKE @q
+      COALESCE(name,'') LIKE ? OR
+      COALESCE(business_name,'') LIKE ? OR
+      COALESCE(email,'') LIKE ? OR
+      COALESCE(domain,'') LIKE ? OR
+      COALESCE(stage,'') LIKE ? OR
+      COALESCE(rating,'') LIKE ?
     )`);
-    params.q = `%${search}%`;
+    const q = `%${search}%`;
+    values.push(q, q, q, q, q, q);
   }
   if (stageFilter.length > 0) {
     if (stageFilter.length === 1 && stageFilter[0] === '__nomatch__') {
       where.push('1 = 0');
     } else {
-      const placeholders = stageFilter.map((_, i) => `@st${i}`).join(',');
+      const placeholders = stageFilter.map(() => '?').join(',');
       where.push(`stage IN (${placeholders})`);
-      stageFilter.forEach((s, i) => (params[`st${i}`] = s));
+      stageFilter.forEach((s) => values.push(s));
     }
   }
   if (ratingFilter.length > 0) {
@@ -43,9 +49,9 @@ export async function GET(req) {
     const concrete = ratingFilter.filter((r) => r !== '__none__');
     const clauses = [];
     if (concrete.length > 0) {
-      const placeholders = concrete.map((_, i) => `@r${i}`).join(',');
+      const placeholders = concrete.map(() => '?').join(',');
       clauses.push(`rating IN (${placeholders})`);
-      concrete.forEach((s, i) => (params[`r${i}`] = s));
+      concrete.forEach((s) => values.push(s));
     }
     if (includeNull) clauses.push(`(rating IS NULL OR rating = '')`);
     where.push(clauses.length > 0 ? `(${clauses.join(' OR ')})` : '1 = 0');
@@ -55,9 +61,9 @@ export async function GET(req) {
     if (readFilter.includes('unread')) vals.push(0);
     if (readFilter.includes('read')) vals.push(1);
     if (vals.length > 0) {
-      const placeholders = vals.map((_, i) => `@rd${i}`).join(',');
+      const placeholders = vals.map(() => '?').join(',');
       where.push(`COALESCE(is_read, 0) IN (${placeholders})`);
-      vals.forEach((v, i) => (params[`rd${i}`] = v));
+      vals.forEach((v) => values.push(v));
     }
   }
 
@@ -91,8 +97,8 @@ export async function GET(req) {
   }
 
   const sql = `SELECT ${SELECT_COLS} FROM prospects ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderBy}`;
-  const rows = db.prepare(sql).all(params);
-  return NextResponse.json({ prospects: rows, stages: STAGES, ratings: RATINGS });
+  const { results } = await db.prepare(sql).bind(...values).all();
+  return NextResponse.json({ prospects: results || [], stages: STAGES, ratings: RATINGS });
 }
 
 export async function POST(req) {
@@ -119,23 +125,32 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Invalid rating' }, { status: 400 });
   }
 
-  const stmt = db.prepare(`
-    INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at)
-    VALUES (@name, @business_name, @email, @domain, @rating, @stage, @emails_sent, @last_contact_date, @claude_chat_link, @gmail_labels, @is_read, datetime('now'), datetime('now'))
-  `);
-  const info = stmt.run({
-    name,
-    business_name,
-    email,
-    domain,
-    rating,
-    stage,
-    emails_sent: Number(emails_sent) || 0,
-    last_contact_date,
-    claude_chat_link,
-    gmail_labels,
-    is_read: is_read ? 1 : 0,
-  });
-  const row = db.prepare(`SELECT ${SELECT_COLS} FROM prospects WHERE id = ?`).get(info.lastInsertRowid);
+  const info = await db
+    .prepare(
+      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+    )
+    .bind(
+      name,
+      business_name,
+      email,
+      domain,
+      rating,
+      stage,
+      Number(emails_sent) || 0,
+      last_contact_date,
+      claude_chat_link,
+      gmail_labels,
+      is_read ? 1 : 0
+    )
+    .run();
+
+  // D1's run() returns { meta: { last_row_id, changes, ... } }. We need
+  // last_row_id to fetch the fresh row back.
+  const newId = info?.meta?.last_row_id;
+  const row = await db
+    .prepare(`SELECT ${SELECT_COLS} FROM prospects WHERE id = ?`)
+    .bind(newId)
+    .first();
   return NextResponse.json({ prospect: row }, { status: 201 });
 }
