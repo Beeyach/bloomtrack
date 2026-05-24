@@ -40,44 +40,50 @@ const NO_RATING = '__none__';
 const READ_OPTIONS = ['unread', 'read'];
 const FILTERS_KEY = 'bloomtrack:filters:v1';
 
+// Stage metadata. Each entry pairs a Lucide-style icon name (see Icon
+// component) with a warm-paper-friendly bg/border. The `faded` flag dims
+// the row for stages that are effectively dead-ends.
 const STAGE_META = {
-  New:        { emoji: '🆕', bg: 'transparent', border: '#D0CAD2' },
-  'Email 1':  { emoji: '1️⃣', bg: '#F6F4F6', border: '#C5C0C8' },
-  'Email 2':  { emoji: '2️⃣', bg: '#EEEAEE', border: '#B0AAB2' },
-  'Email 3':  { emoji: '3️⃣', bg: '#E5E1E5', border: '#9C969E' },
-  'Email 4':  { emoji: '4️⃣', bg: '#E5E1E5', border: '#9C969E' },
-  'Email 5':  { emoji: '5️⃣', bg: '#E0DCE0', border: '#928C95' },
-  'Email 6':  { emoji: '6️⃣', bg: '#DCD8DC', border: '#857F88' },
-  'Email 7':  { emoji: '7️⃣', bg: '#D8D4D8', border: '#79737C' },
-  Recycled:   { emoji: '🔁', bg: '#EEEAEE', border: '#8E8794' },
-  Rekindled:  { emoji: '🔥', bg: '#FBE6CC', border: '#D9994A' },
-  Replied:    { emoji: '💬', bg: '#E1F0E1', border: '#7FB07F' },
-  Interested: { emoji: '💛', bg: '#CFE8C7', border: '#4F9E4F' },
-  Potential:  { emoji: '🟠', bg: '#FDE3C7', border: '#D4894A' },
-  Nudge:      { emoji: '👋', bg: '#FBF3CC', border: '#C8B85A' },
-  Booked:     { emoji: '📅', bg: '#B5DEB5', border: '#2F8C2F' },
-  Unread:     { emoji: '🩶', bg: '#E5E2E5', border: '#9C969E', faded: true },
-  Lost:       { emoji: '✖️', bg: '#E8E4E8', border: '#B0AAB2', faded: true },
-  Closed:     { emoji: '✅', bg: '#C9E5C9', border: '#3F8C3F' },
+  New:        { icon: 'sparkle',        bg: 'transparent', border: '#B48EAD' },
+  'Email 1':  { icon: 'send',           bg: '#F2EAE0',     border: '#C8B79C' },
+  'Email 2':  { icon: 'send',           bg: '#EBE0D2',     border: '#BFAA8C' },
+  'Email 3':  { icon: 'send',           bg: '#E2D4C2',     border: '#B59C7B' },
+  'Email 4':  { icon: 'send',           bg: '#D8C8B5',     border: '#A88E6A' },
+  'Email 5':  { icon: 'send',           bg: '#CDBAA6',     border: '#988059' },
+  'Email 6':  { icon: 'send',           bg: '#C2AC97',     border: '#88714A' },
+  'Email 7':  { icon: 'send',           bg: '#B89F8B',     border: '#79633E' },
+  Recycled:   { icon: 'recycle',        bg: '#F2DCC8',     border: '#C8895A' },
+  Rekindled:  { icon: 'flame',          bg: '#FBE0C2',     border: '#D9904A' },
+  Replied:    { icon: 'message',        bg: '#DDE9CC',     border: '#7FA567' },
+  Interested: { icon: 'heart',          bg: '#C8E4BF',     border: '#5B9F4F' },
+  Potential:  { icon: 'trending-up',    bg: '#FBDFC2',     border: '#D4894A' },
+  Nudge:      { icon: 'bell',           bg: '#F5E9B8',     border: '#BFA94A' },
+  Booked:     { icon: 'calendar-check', bg: '#B5DEB5',     border: '#3F8C3F' },
+  Unread:     { icon: 'mail-open',      bg: '#E6DECF',     border: '#A89A85' },
+  Lost:       { icon: 'x-circle',       bg: '#E2DAD0',     border: '#998E81', faded: true },
+  Closed:     { icon: 'check-circle',   bg: '#C9E5C9',     border: '#3F8C3F' },
 };
 
-// Emoji rating → background tint for the cell + dropdown option.
+// Rating metadata. Stored value in DB is still the emoji string (we don't
+// want to migrate data). We just present it as a colored icon.
 const RATING_META = {
-  '💚': { bg: '#CFE8C7', border: '#4F9E4F' },
-  '💙': { bg: '#D5E1EE', border: '#5A85A6' },
-  '🟠': { bg: '#FDE3C7', border: '#D4894A' },
-  '⭐': { bg: '#FBF3CC', border: '#C8B85A' },
-  '🔥': { bg: '#FBD8D2', border: '#C2543F' },
-  '🟡': { bg: '#FBF3CC', border: '#C8B85A' },
-  '✖️': { bg: '#E0DCE0', border: '#A8A0AC' },
+  '💚': { icon: 'heart',      color: '#4F9E4F', bg: '#DEEFD6', label: 'Green' },
+  '💙': { icon: 'heart',      color: '#5A85A6', bg: '#D8E5F0', label: 'Blue' },
+  '🟠': { icon: 'circle-dot', color: '#D4894A', bg: '#FBE2C9', label: 'Orange' },
+  '⭐':  { icon: 'star',       color: '#BFA94A', bg: '#FBF3CC', label: 'Star' },
+  '🔥': { icon: 'flame',      color: '#C2543F', bg: '#FBD2C9', label: 'Hot' },
+  '🟡': { icon: 'circle-dot', color: '#BFA94A', bg: '#FBF3CC', label: 'Yellow' },
+  '✖️': { icon: 'x-circle',   color: '#998E81', bg: '#E4DAD0', label: 'Skip' },
 };
 
 function stageStyle(s) {
   return STAGE_META[s] || STAGE_META.New;
 }
 function stageLabel(s) {
-  const m = STAGE_META[s];
-  return m ? `${m.emoji} ${s}` : s;
+  // Plain text label — used inside native <select> options where SVGs
+  // aren't allowed. Visual identity (icon, color) is carried by the
+  // <StageChip> / <StagePicker> components instead.
+  return s;
 }
 function todayIso() {
   const d = new Date();
@@ -114,6 +120,265 @@ function normalizeChatHref(url) {
   let u = url.trim();
   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
   return u;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Icon set. Lucide-style strokes, currentColor, 24×24 viewbox so size is
+// driven by w/h utility classes. Keeping them inline avoids a runtime
+// dependency on lucide-react (which would also need edge-runtime sanity
+// checks).
+// ─────────────────────────────────────────────────────────────────────────
+function Icon({ name, className = 'w-4 h-4', strokeWidth = 2 }) {
+  const common = {
+    className,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+  };
+  switch (name) {
+    case 'sparkle':
+      return (
+        <svg {...common}>
+          <path d="M12 3 13.5 8.5 19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z" />
+          <path d="M19 3v3M20.5 4.5h-3M5 17v3M6.5 18.5h-3" />
+        </svg>
+      );
+    case 'send':
+      return (
+        <svg {...common}>
+          <path d="m22 2-7 20-4-9-9-4Z" />
+          <path d="M22 2 11 13" />
+        </svg>
+      );
+    case 'recycle':
+      return (
+        <svg {...common}>
+          <path d="M7 19H4.8a1.8 1.8 0 0 1-1.6-2.7L7.2 9.5" />
+          <path d="M11 19h8.2a1.8 1.8 0 0 0 1.6-2.7l-1.2-2.1" />
+          <path d="m14 16-3 3 3 3" />
+          <path d="M8.3 13.6 7.2 9.5 3.1 10.6" />
+          <path d="m9.3 5.8 1.1-1.9A1.8 1.8 0 0 1 12 3a1.8 1.8 0 0 1 1.5.9l3.9 6.8" />
+          <path d="m13.4 9.6 4.1 1.1 1.1-4.1" />
+        </svg>
+      );
+    case 'flame':
+      return (
+        <svg {...common}>
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+        </svg>
+      );
+    case 'message':
+      return (
+        <svg {...common}>
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      );
+    case 'heart':
+      return (
+        <svg {...common}>
+          <path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z" />
+        </svg>
+      );
+    case 'trending-up':
+      return (
+        <svg {...common}>
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+          <polyline points="16 7 22 7 22 13" />
+        </svg>
+      );
+    case 'bell':
+      return (
+        <svg {...common}>
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+      );
+    case 'calendar-check':
+      return (
+        <svg {...common}>
+          <rect width="18" height="18" x="3" y="4" rx="2" />
+          <path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4" />
+        </svg>
+      );
+    case 'mail-open':
+      return (
+        <svg {...common}>
+          <path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z" />
+          <path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10" />
+        </svg>
+      );
+    case 'mail':
+      return (
+        <svg {...common}>
+          <rect width="20" height="16" x="2" y="4" rx="2" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+      );
+    case 'x-circle':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="m15 9-6 6M9 9l6 6" />
+        </svg>
+      );
+    case 'check-circle':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case 'circle-dot':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'star':
+      return (
+        <svg {...common}>
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      );
+    case 'link':
+      return (
+        <svg {...common}>
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      );
+    case 'external-link':
+      return (
+        <svg {...common}>
+          <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+        </svg>
+      );
+    case 'pencil':
+      return (
+        <svg {...common}>
+          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          <path d="m15 5 4 4" />
+        </svg>
+      );
+    case 'sprout':
+      return (
+        <svg {...common}>
+          <path d="M7 20h10" />
+          <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+          <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+          <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
+        </svg>
+      );
+    case 'search':
+      return (
+        <svg {...common}>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      );
+    case 'chevron-down':
+      return (
+        <svg {...common}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+// Looks up a stage's icon name and renders the SVG. Falls back to a
+// neutral dot for unknown stages.
+function StageIcon({ stage, className = 'w-3.5 h-3.5' }) {
+  const meta = STAGE_META[stage] || {};
+  return <Icon name={meta.icon || 'circle-dot'} className={className} />;
+}
+
+// Custom stage selector. Renders as a chip that opens a popover with each
+// option laid out as [colored icon swatch] + [name]. Replaces the native
+// <select> we had before — same data, much nicer affordance.
+function StagePicker({ value, stages, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const meta = STAGE_META[value] || STAGE_META.New;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  function pick(s) {
+    setOpen(false);
+    if (s !== value) onChange(s);
+  }
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="bw-chip"
+        style={{
+          backgroundColor: meta.bg === 'transparent' ? '#FBF7F0' : meta.bg,
+          borderColor: meta.border,
+          color: meta.faded ? '#7C7480' : '#1E1E2A',
+        }}
+        title={value}
+      >
+        <span style={{ color: meta.border }}>
+          <StageIcon stage={value} className="w-3.5 h-3.5" />
+        </span>
+        <span className="truncate max-w-[110px]">{value}</span>
+        <Icon name="chevron-down" className="w-3 h-3 opacity-60" />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1.5 left-0 w-52 bg-surface border border-line rounded-xl shadow-card p-1.5 max-h-[60vh] overflow-y-auto bw-scroll">
+          {stages.map((s) => {
+            const m = STAGE_META[s] || {};
+            const isCurrent = s === value;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => pick(s)}
+                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-sm transition ${
+                  isCurrent ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
+                }`}
+              >
+                <span
+                  className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border"
+                  style={{
+                    backgroundColor: m.bg === 'transparent' ? '#FBF7F0' : m.bg,
+                    borderColor: m.border,
+                    color: m.border,
+                  }}
+                >
+                  <StageIcon stage={s} className="w-3.5 h-3.5" />
+                </span>
+                <span style={{ color: m.faded ? 'var(--muted)' : 'var(--charcoal)' }}>{s}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Stages that imply an email just went out — bumps emails_sent + last_contact_date.
@@ -565,10 +830,9 @@ export default function ProspectsApp({ stages, ratings }) {
         {/* Search + filter share a soft "input group" container so they
             read as one tool rather than two stacked widgets. */}
         <div className="flex items-center gap-2 bg-surface border border-line rounded-xl px-2 py-1.5 shadow-card">
-          <svg className="ml-1 w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <span className="ml-1 text-muted">
+            <Icon name="search" className="w-4 h-4" />
+          </span>
           <input
             type="text"
             placeholder="Search name, business, email, domain…"
@@ -644,7 +908,9 @@ export default function ProspectsApp({ stages, ratings }) {
 
       {showEmptyState ? (
         <section className="bg-surface border border-line rounded-2xl p-16 text-center shadow-card">
-          <div className="text-4xl mb-5">🌱</div>
+          <div className="inline-flex w-16 h-16 mb-5 rounded-full bg-blush-soft items-center justify-center text-mauve-deep">
+            <Icon name="sprout" className="w-7 h-7" />
+          </div>
           <h2 className="font-serif text-3xl text-charcoal mb-2">
             A quiet beginning.
           </h2>
@@ -785,12 +1051,15 @@ export default function ProspectsApp({ stages, ratings }) {
                   const highlighted = highlightId === p.id;
                   const isPending = pendingDelete === p.id;
                   const isActive = activeRowId === p.id;
-                  // Stage tint stays untouched. Active highlight is a hot-pink
-                  // border drawn via inset box-shadows on the td CSS rule —
-                  // no background change, no layout shift.
+                  // Per-row visual identity is now a 4px left stripe in the
+                  // stage's border color (painted via the --stage-stripe CSS
+                  // variable, see globals.css). No more full-row tint — the
+                  // chip alone carries the stage color so the table stays
+                  // scannable. `faded` still dims the row slightly for
+                  // dead-end stages like Lost.
                   const rowStyle = {
-                    backgroundColor: c.bg === 'transparent' ? undefined : c.bg,
-                    opacity: c.faded ? 0.6 : 1,
+                    '--stage-stripe': c.border,
+                    opacity: c.faded ? 0.7 : 1,
                   };
                   return (
                     <tr
@@ -813,10 +1082,17 @@ export default function ProspectsApp({ stages, ratings }) {
                       <td className="px-1 py-1 align-top text-center w-8">
                         <button
                           onClick={() => toggleRead(p)}
-                          className="text-base leading-none hover:scale-110 transition-transform"
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition ${
+                            p.is_read
+                              ? 'text-mauve-deep hover:bg-blush-soft'
+                              : 'text-muted hover:text-charcoal hover:bg-blush-soft'
+                          }`}
                           title={p.is_read ? 'Read — click to mark unread' : 'Unread — click to mark read'}
                         >
-                          {p.is_read ? '✔️' : 'ℹ️'}
+                          <Icon
+                            name={p.is_read ? 'check-circle' : 'mail'}
+                            className="w-4 h-4"
+                          />
                         </button>
                       </td>
                       <EditableCell value={p.name} onSave={(v) => updateProspect(p.id, { name: v })} />
@@ -840,32 +1116,11 @@ export default function ProspectsApp({ stages, ratings }) {
                         />
                       </td>
                       <td className="px-2 py-1 align-top">
-                        <select
-                          className="status-select text-sm"
-                          style={{
-                            backgroundColor: c.bg === 'transparent' ? '#fff' : c.bg,
-                            borderColor: c.border,
-                            color: c.faded ? '#7C7480' : '#1E1E2A',
-                          }}
+                        <StagePicker
                           value={stageKey}
-                          onChange={(e) => handleStageChange(p, e.target.value)}
-                        >
-                          {stages.map((s) => {
-                            const sc = stageStyle(s);
-                            return (
-                              <option
-                                key={s}
-                                value={s}
-                                style={{
-                                  backgroundColor: sc.bg === 'transparent' ? '#fff' : sc.bg,
-                                  color: sc.faded ? '#7C7480' : '#1E1E2A',
-                                }}
-                              >
-                                {stageLabel(s)}
-                              </option>
-                            );
-                          })}
-                        </select>
+                          stages={stages}
+                          onChange={(s) => handleStageChange(p, s)}
+                        />
                       </td>
                       <NumberCell
                         value={p.emails_sent ?? 0}
@@ -946,17 +1201,19 @@ export default function ProspectsApp({ stages, ratings }) {
           </select>
           <button
             onClick={() => bulkSetRead(1)}
-            className="text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
+            className="inline-flex items-center gap-1.5 text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             title="Mark selected as read"
           >
-            ✔️ Read
+            <Icon name="check-circle" className="w-3.5 h-3.5" />
+            Read
           </button>
           <button
             onClick={() => bulkSetRead(0)}
-            className="text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
+            className="inline-flex items-center gap-1.5 text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             title="Mark selected as unread"
           >
-            ℹ️ Unread
+            <Icon name="mail" className="w-3.5 h-3.5" />
+            Unread
           </button>
           <span className="w-px h-4 bg-paper/20" />
           <button
@@ -1036,18 +1293,36 @@ const FilterPanel = forwardRef(function FilterPanel(
       className="absolute z-30 mt-3 left-0 w-72 max-h-[70vh] overflow-y-auto bg-surface border border-line rounded-2xl shadow-card p-4 bw-scroll"
     >
       <FilterSection label="Rating">
-        {ratings.map((r) => (
-          <FilterRow
-            key={r}
-            checked={ratingChecked.has(r)}
-            onChange={() => toggleRating(r)}
-            label={<span className="text-base">{r}</span>}
-          />
-        ))}
+        {ratings.map((r) => {
+          const rm = RATING_META[r] || {};
+          return (
+            <FilterRow
+              key={r}
+              checked={ratingChecked.has(r)}
+              onChange={() => toggleRating(r)}
+              label={
+                <span className="flex items-center gap-2 text-sm text-charcoal">
+                  <span
+                    className="w-5 h-5 rounded-full border flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: rm.bg, borderColor: rm.color, color: rm.color }}
+                  >
+                    <Icon name={rm.icon} className="w-3 h-3" />
+                  </span>
+                  {rm.label || r}
+                </span>
+              }
+            />
+          );
+        })}
         <FilterRow
           checked={ratingChecked.has(NO_RATING)}
           onChange={() => toggleRating(NO_RATING)}
-          label={<span className="text-sm text-muted italic">(no rating)</span>}
+          label={
+            <span className="flex items-center gap-2 text-sm text-muted italic">
+              <span className="w-5 h-5 rounded-full border border-dashed border-line shrink-0" />
+              (no rating)
+            </span>
+          }
         />
       </FilterSection>
 
@@ -1060,8 +1335,17 @@ const FilterPanel = forwardRef(function FilterPanel(
               checked={stageChecked.has(s)}
               onChange={() => toggleStage(s)}
               label={
-                <span className={`text-sm ${m.faded ? 'text-muted' : 'text-charcoal'}`}>
-                  <span className="mr-1.5">{m.emoji}</span>
+                <span className={`flex items-center gap-2 text-sm ${m.faded ? 'text-muted' : 'text-charcoal'}`}>
+                  <span
+                    className="w-5 h-5 rounded-full border flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: m.bg === 'transparent' ? '#FBF7F0' : m.bg,
+                      borderColor: m.border,
+                      color: m.border,
+                    }}
+                  >
+                    <StageIcon stage={s} className="w-3 h-3" />
+                  </span>
                   {s}
                 </span>
               }
@@ -1074,12 +1358,26 @@ const FilterPanel = forwardRef(function FilterPanel(
         <FilterRow
           checked={readChecked.has('unread')}
           onChange={() => toggleRead('unread')}
-          label={<span className="text-sm"><span className="mr-1.5">ℹ️</span>Unread</span>}
+          label={
+            <span className="flex items-center gap-2 text-sm text-charcoal">
+              <span className="w-5 h-5 rounded-full bg-blush-soft text-muted flex items-center justify-center shrink-0">
+                <Icon name="mail" className="w-3 h-3" />
+              </span>
+              Unread
+            </span>
+          }
         />
         <FilterRow
           checked={readChecked.has('read')}
           onChange={() => toggleRead('read')}
-          label={<span className="text-sm"><span className="mr-1.5">✔️</span>Read</span>}
+          label={
+            <span className="flex items-center gap-2 text-sm text-charcoal">
+              <span className="w-5 h-5 rounded-full bg-blush-soft text-mauve-deep flex items-center justify-center shrink-0">
+                <Icon name="check-circle" className="w-3 h-3" />
+              </span>
+              Read
+            </span>
+          }
         />
       </FilterSection>
 
@@ -1347,10 +1645,12 @@ function RatingCell({ value, options, onChange }) {
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [open]);
 
+  // Rating value in the DB is still the emoji string (so import/export
+  // CSVs stay portable). We just render it as a colored icon swatch.
   const m = value ? RATING_META[value] : null;
   const buttonStyle = m
-    ? { backgroundColor: m.bg, borderColor: m.border }
-    : { backgroundColor: 'transparent', borderColor: '#E4DAD0', borderStyle: 'dashed' };
+    ? { backgroundColor: m.bg, borderColor: m.border, color: m.color }
+    : { backgroundColor: 'transparent', borderColor: '#E4DAD0', borderStyle: 'dashed', color: '#8A8194' };
 
   function pick(v) {
     setOpen(false);
@@ -1362,31 +1662,34 @@ function RatingCell({ value, options, onChange }) {
       <button
         onClick={() => setOpen((v) => !v)}
         style={buttonStyle}
-        className="w-8 h-8 rounded-full border flex items-center justify-center text-base hover:brightness-95"
-        title={value || 'Set rating'}
+        className="w-7 h-7 rounded-full border flex items-center justify-center transition hover:brightness-95"
+        title={m?.label || 'Set rating'}
       >
-        {value || <span className="text-muted/60 text-xs">—</span>}
+        {m ? <Icon name={m.icon} className="w-3.5 h-3.5" /> : <span className="text-xs">—</span>}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 left-0 bg-surface border border-line rounded-xl shadow-card p-1.5 flex flex-col gap-1">
+        <div className="absolute z-20 mt-1.5 left-0 bg-surface border border-line rounded-xl shadow-card p-1.5 flex flex-col gap-1">
           <button
             onClick={() => pick(null)}
-            className="w-8 h-8 rounded-full border border-dashed border-line text-xs text-muted hover:bg-blush-soft transition"
-            title="Clear"
+            className="w-7 h-7 rounded-full border border-dashed border-line text-xs text-muted hover:bg-blush-soft transition flex items-center justify-center"
+            title="Clear rating"
           >
             —
           </button>
           {options.map((r) => {
             const rm = RATING_META[r] || {};
+            const isCurrent = r === value;
             return (
               <button
                 key={r}
                 onClick={() => pick(r)}
-                style={{ backgroundColor: rm.bg, borderColor: rm.border }}
-                className="w-8 h-8 rounded border text-base hover:brightness-95 flex items-center justify-center"
-                title={r}
+                style={{ backgroundColor: rm.bg, borderColor: rm.color, color: rm.color }}
+                className={`w-7 h-7 rounded-full border flex items-center justify-center transition hover:brightness-95 ${
+                  isCurrent ? 'ring-2 ring-offset-1 ring-offset-surface ring-mauve' : ''
+                }`}
+                title={rm.label || r}
               >
-                {r}
+                <Icon name={rm.icon} className="w-3.5 h-3.5" />
               </button>
             );
           })}
@@ -1454,18 +1757,18 @@ function ChatCell({ value, onSave }) {
         href={normalizeChatHref(value)}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-mauve hover:underline text-base"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-mauve-deep hover:bg-blush-soft transition"
         onClick={(e) => e.stopPropagation()}
         title={value}
       >
-        🔗
+        <Icon name="link" className="w-3.5 h-3.5" />
       </a>
       <button
         onClick={() => setEditing(true)}
-        className="text-xs text-muted/60 hover:text-mauve opacity-0 group-hover:opacity-100"
+        className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-mauve-deep opacity-0 group-hover:opacity-100 transition"
         title="Edit"
       >
-        ✎
+        <Icon name="pencil" className="w-3 h-3" />
       </button>
     </div>
   );
@@ -1517,22 +1820,23 @@ function DomainCell({ value, onSave }) {
     );
   }
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 min-w-0">
       <a
         href={normalizeDomainHref(value)}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-mauve hover:underline text-sm"
+        className="text-mauve-deep hover:underline text-sm truncate min-w-0"
         onClick={(e) => e.stopPropagation()}
+        title={value}
       >
         {value}
       </a>
       <button
         onClick={() => setEditing(true)}
-        className="text-xs text-muted/60 hover:text-mauve"
+        className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-mauve-deep opacity-0 group-hover:opacity-100 transition"
         title="Edit"
       >
-        ✎
+        <Icon name="pencil" className="w-3 h-3" />
       </button>
     </div>
   );

@@ -51,10 +51,37 @@ html, body {
   min-height: 28px;
   display: block;
   transition: background-color 120ms ease;
+  /* Truncate long values so emails/domains don't bleed into neighbour cells. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cell-display:hover {
   background: var(--blush-soft);
 }
+
+/* Generic chip used for the stage selector trigger + filter panel rows.
+   Compact, rounded, takes its bg/border from inline style. */
+.bw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+.bw-chip:hover { filter: brightness(0.97); }
+.bw-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(180, 142, 173, 0.30);
+}
+.bw-chip svg { flex-shrink: 0; }
 
 /* Stage <select>. Keeps the per-stage tint color set inline; we just
    restyle the chrome so it matches the rest of the form vocabulary. */
@@ -78,9 +105,16 @@ select.status-select:focus {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Active row indicator. Hot-pink inset box-shadow that doesn't shift
-   layout. Kept from the original — it's the user's "you are here" cue.
+   Stage stripe + active row indicator.
+   Instead of tinting the whole row by stage (noisy when half your table
+   is "Email 3"), we paint a 4px colored stripe on the row's leftmost
+   cell. Per-row color comes from the `--stage-stripe` CSS variable set
+   inline on the <tr>. Active row hot-pink overrides via higher specificity.
    ─────────────────────────────────────────────────────────────────────── */
+tbody tr > td:first-child {
+  box-shadow: inset 4px 0 0 0 var(--stage-stripe, transparent);
+}
+
 tr[data-active-row="true"] > td {
   box-shadow:
     inset 0 2px 0 0 var(--rose-active),
