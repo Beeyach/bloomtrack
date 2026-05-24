@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir F:\\\\bloomtrack)",
+      "PowerShell(Get-ChildItem F:\\\\bloomtrack -Force -ErrorAction SilentlyContinue; if \\(-not \\(Test-Path F:\\\\bloomtrack\\)\\) { Write-Output \"DIR_MISSING\" })",
+      "PowerShell($env:NPM_CONFIG_FUND=\"false\"; $env:NPM_CONFIG_AUDIT=\"false\"; npm install --no-fund --no-audit --loglevel=error 2>&1 | Out-String)",
+      "PowerShell(npm run build 2>&1)",
+      "PowerShell($proc = Start-Process -FilePath \"npm.cmd\" -ArgumentList \"run\",\"start\" -PassThru -RedirectStandardOutput \"F:\\\\bloomtrack\\\\server.log\" -RedirectStandardError \"F:\\\\bloomtrack\\\\server.err\" -WorkingDirectory \"F:\\\\bloomtrack\" -NoNewWindow; Start-Sleep -Seconds 5; try { node F:\\\\bloomtrack\\\\data\\\\test-import.mjs } catch { Write-Output \"ERR: $_\" }; Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue; Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue)",
+      "Bash(npx --no-install next build)"
+    ]
+  }
+}
