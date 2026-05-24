@@ -2,72 +2,131 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens · Bloomwired-aligned warm paper palette.
+   These mirror tailwind.config.js so non-Tailwind CSS rules can use them.
+   ─────────────────────────────────────────────────────────────────────── */
 :root {
   --charcoal: #1E1E2A;
+  --charcoal-2: #4A4453;
   --mauve: #B48EAD;
-  --blush: #E8C4D4;
-  --bg: #F7F3F6;
+  --mauve-deep: #8E6A8D;
+  --blush: #EDD9DE;
+  --blush-soft: #F4E5E9;
+  --paper: #F5EFE6;
+  --surface: #FBF7F0;
+  --line: #E4DAD0;
   --muted: #8A8194;
+  --rose-active: #FF1493;
 }
 
 html, body {
-  background: var(--bg);
+  background: var(--paper);
   color: var(--charcoal);
+  /* Avoid jarring jumps when font files swap in. */
+  font-feature-settings: 'ss01', 'ss02';
 }
 
-/* Row tinting is driven inline (left border on the checkbox cell + tr text color)
-   so the saturated `border` color from STATUS_META applies per-row without
-   needing a class per status. Hover handled via Tailwind on the tr. */
-
+/* ─────────────────────────────────────────────────────────────────────────
+   Editable cell styling.
+   The base cell renders as plain text and only "lights up" on hover/edit.
+   Keeps the table calm to scan while still affording inline edit.
+   ─────────────────────────────────────────────────────────────────────── */
 .cell-input {
-  background: transparent;
+  background: #fff;
   outline: none;
   width: 100%;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 6px;
+  border: 1px solid var(--mauve);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--charcoal);
+  box-shadow: 0 0 0 3px rgba(180, 142, 173, 0.18);
 }
-.cell-input:focus {
-  background: #fff;
-  border-color: #B48EAD;
-}
+
 .cell-display {
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
   cursor: text;
   min-height: 28px;
   display: block;
+  transition: background-color 120ms ease;
 }
 .cell-display:hover {
-  background: rgba(180, 142, 173, 0.08);
+  background: var(--blush-soft);
 }
 
+/* Stage <select>. Keeps the per-stage tint color set inline; we just
+   restyle the chrome so it matches the rest of the form vocabulary. */
 select.status-select {
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 3px 6px;
+  border-radius: 999px;
+  padding: 3px 22px 3px 10px;
   font-weight: 500;
+  font-size: 13px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%231E1E2A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px 7px;
 }
 select.status-select:hover { filter: brightness(0.97); }
-select.status-select:focus { outline: none; box-shadow: 0 0 0 2px rgba(180, 142, 173, 0.35); }
+select.status-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(180, 142, 173, 0.30);
+}
 
-/* Active-row hot-pink border. Inset box-shadow so it doesn't shift layout
-   and bypasses border-collapse fights. Top + bottom on every cell creates a
-   continuous row edge; left only on first cell, right only on last cell. */
+/* ─────────────────────────────────────────────────────────────────────────
+   Active row indicator. Hot-pink inset box-shadow that doesn't shift
+   layout. Kept from the original — it's the user's "you are here" cue.
+   ─────────────────────────────────────────────────────────────────────── */
 tr[data-active-row="true"] > td {
   box-shadow:
-    inset 0 2px 0 0 #FF1493,
-    inset 0 -2px 0 0 #FF1493;
+    inset 0 2px 0 0 var(--rose-active),
+    inset 0 -2px 0 0 var(--rose-active);
 }
 tr[data-active-row="true"] > td:first-child {
   box-shadow:
-    inset 0 2px 0 0 #FF1493,
-    inset 0 -2px 0 0 #FF1493,
-    inset 2px 0 0 0 #FF1493;
+    inset 0 2px 0 0 var(--rose-active),
+    inset 0 -2px 0 0 var(--rose-active),
+    inset 2px 0 0 0 var(--rose-active);
 }
 tr[data-active-row="true"] > td:last-child {
   box-shadow:
-    inset 0 2px 0 0 #FF1493,
-    inset 0 -2px 0 0 #FF1493,
-    inset -2px 0 0 0 #FF1493;
+    inset 0 2px 0 0 var(--rose-active),
+    inset 0 -2px 0 0 var(--rose-active),
+    inset -2px 0 0 0 var(--rose-active);
+}
+
+/* Tabular numerals everywhere a number is shown — keeps columns aligned
+   even when digit widths vary in IBM Plex Mono. */
+.num-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Native form control polish.
+   Checkboxes inherit accent color. Date inputs lose their iOS chrome.
+   ─────────────────────────────────────────────────────────────────────── */
+input[type="checkbox"] {
+  accent-color: var(--mauve);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+input[type="date"] {
+  font: inherit;
+}
+
+/* Custom scrollbar in the table overflow — soft, not Windows-default. */
+.bw-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+.bw-scroll::-webkit-scrollbar-track { background: transparent; }
+.bw-scroll::-webkit-scrollbar-thumb {
+  background: rgba(180, 142, 173, 0.35);
+  border-radius: 999px;
+}
+.bw-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 106, 141, 0.6);
 }

@@ -546,64 +546,83 @@ export default function ProspectsApp({ stages, ratings }) {
   }
 
   return (
-    <div className="min-h-screen px-6 py-6 max-w-[1500px] mx-auto">
-      <header className="mb-4">
-        <h1 className="text-2xl font-semibold text-charcoal">Bloomtrack</h1>
-        <p className="text-sm text-muted">Prospecting tracker</p>
+    <div className="min-h-screen px-6 py-10 sm:py-14 max-w-[1500px] mx-auto">
+      <header className="mb-10 flex items-end justify-between gap-6 flex-wrap">
+        <div>
+          <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal">
+            Bloomtrack
+          </h1>
+          <p className="mt-2 text-sm font-mono uppercase tracking-[0.18em] text-muted">
+            Prospecting · since today
+          </p>
+        </div>
+        <div className="font-mono text-xs uppercase tracking-[0.16em] text-muted">
+          {totalCount} prospect{totalCount === 1 ? '' : 's'} on file
+        </div>
       </header>
 
-      <div className="mb-4 flex items-center gap-2 flex-wrap relative">
-        <input
-          type="text"
-          placeholder="Search name, business, email, domain..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-2 text-sm bg-white border border-blush/60 rounded-md w-80 focus:outline-none focus:border-mauve"
-        />
+      <div className="mb-5 flex items-center gap-3 flex-wrap relative">
+        {/* Search + filter share a soft "input group" container so they
+            read as one tool rather than two stacked widgets. */}
+        <div className="flex items-center gap-2 bg-surface border border-line rounded-xl px-2 py-1.5 shadow-card">
+          <svg className="ml-1 w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search name, business, email, domain…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-2 py-1.5 text-sm bg-transparent border-0 outline-none w-72 placeholder:text-muted/80"
+          />
 
-        <div className="relative">
-          <button
-            ref={filtersBtnRef}
-            onClick={() => setFiltersOpen((v) => !v)}
-            className={`px-3 py-2 text-sm bg-white border rounded-md hover:bg-blush/30 flex items-center gap-1.5 ${
-              hiddenCount > 0 ? 'border-mauve text-charcoal' : 'border-blush'
-            }`}
-          >
-            <span>Filters</span>
-            {hiddenCount > 0 && (
-              <span className="text-xs text-muted">({hiddenCount} hidden)</span>
+          <div className="relative">
+            <button
+              ref={filtersBtnRef}
+              onClick={() => setFiltersOpen((v) => !v)}
+              className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
+                hiddenCount > 0
+                  ? 'bg-mauve text-white'
+                  : 'text-charcoal-2 hover:bg-blush-soft'
+              }`}
+            >
+              <span>Filters</span>
+              {hiddenCount > 0 && (
+                <span className="text-[10px] opacity-80">· {hiddenCount}</span>
+              )}
+              <span className="text-[10px] opacity-70">▾</span>
+            </button>
+
+            {filtersOpen && (
+              <FilterPanel
+                ref={filtersPanelRef}
+                ratings={ratings}
+                stages={stages}
+                ratingChecked={ratingChecked}
+                stageChecked={stageChecked}
+                readChecked={readChecked}
+                toggleRating={(r) => toggleInSet(setRatingChecked, r)}
+                toggleStage={(s) => toggleInSet(setStageChecked, s)}
+                toggleRead={(r) => toggleInSet(setReadChecked, r)}
+                onSelectAll={selectAllFilters}
+                onClearAll={clearAllFilters}
+                onDone={() => setFiltersOpen(false)}
+              />
             )}
-            <span className="text-xs text-muted">▾</span>
-          </button>
-
-          {filtersOpen && (
-            <FilterPanel
-              ref={filtersPanelRef}
-              ratings={ratings}
-              stages={stages}
-              ratingChecked={ratingChecked}
-              stageChecked={stageChecked}
-              readChecked={readChecked}
-              toggleRating={(r) => toggleInSet(setRatingChecked, r)}
-              toggleStage={(s) => toggleInSet(setStageChecked, s)}
-              toggleRead={(r) => toggleInSet(setReadChecked, r)}
-              onSelectAll={selectAllFilters}
-              onClearAll={clearAllFilters}
-              onDone={() => setFiltersOpen(false)}
-            />
-          )}
+          </div>
         </div>
 
-        <div className="text-xs text-muted">
+        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
           {hasActiveFilter
-            ? `showing ${prospects.length} of ${totalCount}`
-            : `${totalCount} prospect${totalCount === 1 ? '' : 's'}`}
+            ? `${prospects.length} / ${totalCount} shown`
+            : `${totalCount} total`}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 text-sm bg-white border border-blush rounded-md hover:bg-blush/30"
+            className="px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
           >
             Import CSV
           </button>
@@ -616,7 +635,7 @@ export default function ProspectsApp({ stages, ratings }) {
           />
           <button
             onClick={exportCsv}
-            className="px-3 py-1.5 text-sm bg-white border border-blush rounded-md hover:bg-blush/30"
+            className="px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
           >
             Export CSV
           </button>
@@ -624,64 +643,74 @@ export default function ProspectsApp({ stages, ratings }) {
       </div>
 
       {showEmptyState ? (
-        <section className="bg-white border border-blush/60 rounded-md p-10 text-center shadow-sm">
-          <div className="text-3xl mb-3">🌱</div>
-          <h2 className="text-lg font-semibold text-charcoal mb-1">No data yet.</h2>
-          <p className="text-sm text-muted mb-5">
-            Import your CSV to get started.
+        <section className="bg-surface border border-line rounded-2xl p-16 text-center shadow-card">
+          <div className="text-4xl mb-5">🌱</div>
+          <h2 className="font-serif text-3xl text-charcoal mb-2">
+            A quiet beginning.
+          </h2>
+          <p className="text-sm text-charcoal-2 mb-8 max-w-sm mx-auto leading-relaxed">
+            Nothing yet. Import your CSV — or just add the first prospect by
+            hand. Either way, every row from here will save automatically.
           </p>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 text-sm bg-mauve text-white rounded-md hover:opacity-90"
+            className="px-5 py-2.5 text-xs font-mono uppercase tracking-[0.18em] bg-charcoal text-paper rounded-full hover:bg-mauve-deep transition"
           >
             Import CSV
           </button>
         </section>
       ) : (
         <>
+          {/* Quick-add lives as a separate card above the table so it
+              reads like an intentional "new entry" affordance rather
+              than a header row of the table. */}
           <form
             onSubmit={addProspect}
-            className="mb-0 flex flex-wrap gap-2 rounded-t-md p-3 border border-b-2 border-blush/60 border-b-mauve/50"
-            style={{ backgroundColor: '#F0ECF0' }}
+            className="mb-3 bg-surface border border-line rounded-2xl p-4 shadow-card"
           >
-            <input
-              type="text"
-              placeholder="Name"
-              value={quickAdd.name}
-              onChange={(e) => setQuickAdd({ ...quickAdd, name: e.target.value })}
-              className="px-3 py-1.5 text-sm bg-white border border-blush/60 rounded-md focus:outline-none focus:border-mauve flex-1 min-w-[140px]"
-            />
-            <input
-              type="text"
-              placeholder="Business"
-              value={quickAdd.business_name}
-              onChange={(e) => setQuickAdd({ ...quickAdd, business_name: e.target.value })}
-              className="px-3 py-1.5 text-sm bg-white border border-blush/60 rounded-md focus:outline-none focus:border-mauve flex-1 min-w-[160px]"
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              value={quickAdd.email}
-              onChange={(e) => setQuickAdd({ ...quickAdd, email: e.target.value })}
-              className="px-3 py-1.5 text-sm bg-white border border-blush/60 rounded-md focus:outline-none focus:border-mauve flex-1 min-w-[200px]"
-            />
-            <input
-              type="text"
-              placeholder="Domain"
-              value={quickAdd.domain}
-              onChange={(e) => setQuickAdd({ ...quickAdd, domain: e.target.value })}
-              className="px-3 py-1.5 text-sm bg-white border border-blush/60 rounded-md focus:outline-none focus:border-mauve flex-1 min-w-[160px]"
-            />
-            <button
-              type="submit"
-              className="px-4 py-1.5 text-sm bg-mauve text-white rounded-md hover:opacity-90"
-            >
-              Add
-            </button>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
+              Add a prospect
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                placeholder="Name"
+                value={quickAdd.name}
+                onChange={(e) => setQuickAdd({ ...quickAdd, name: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[140px] transition"
+              />
+              <input
+                type="text"
+                placeholder="Business"
+                value={quickAdd.business_name}
+                onChange={(e) => setQuickAdd({ ...quickAdd, business_name: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={quickAdd.email}
+                onChange={(e) => setQuickAdd({ ...quickAdd, email: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[200px] transition"
+              />
+              <input
+                type="text"
+                placeholder="Domain"
+                value={quickAdd.domain}
+                onChange={(e) => setQuickAdd({ ...quickAdd, domain: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
+              />
+              <button
+                type="submit"
+                className="px-5 py-2 text-xs font-mono uppercase tracking-[0.18em] bg-charcoal text-paper rounded-lg hover:bg-mauve-deep transition"
+              >
+                Add
+              </button>
+            </div>
           </form>
 
           <div
-            className="bg-white border border-t-0 border-blush/60 rounded-b-md overflow-x-auto"
+            className="bg-surface border border-line rounded-2xl overflow-x-auto shadow-card bw-scroll"
             onClick={(e) => {
               // Active-row tracking. A click anywhere inside a data row pins
               // that row; a click on empty tbody/wrapper space clears it.
@@ -706,9 +735,12 @@ export default function ProspectsApp({ stages, ratings }) {
                 ))}
                 <col style={{ width: colWidths.__delete ?? COL_DEFAULTS.__delete }} />
               </colgroup>
-              <thead className="bg-blush/30 text-charcoal">
-                <tr>
-                  <th className="relative px-2 py-2 text-left">
+              {/* Header is mono uppercase tracked, sits on the paper bg
+                  with a hairline divider below — feels like a column
+                  label, not a heavy table header. */}
+              <thead className="bg-paper/60">
+                <tr className="border-b border-line">
+                  <th className="relative px-3 py-3 text-left">
                     <input
                       type="checkbox"
                       checked={prospects.length > 0 && selected.size === prospects.length}
@@ -720,13 +752,13 @@ export default function ProspectsApp({ stages, ratings }) {
                     <th
                       key={c.key}
                       onClick={() => toggleSort(c.key)}
-                      className={`relative py-2 text-left font-semibold cursor-pointer select-none whitespace-nowrap overflow-hidden ${
+                      className={`relative py-3 text-left font-mono text-[10px] uppercase tracking-[0.16em] text-muted hover:text-charcoal cursor-pointer select-none whitespace-nowrap overflow-hidden transition ${
                         c.key === 'is_read' ? 'px-1 text-center' : 'px-3'
                       }`}
                     >
                       {c.label}
                       {sort.key === c.key && (
-                        <span className="ml-1 text-muted">{sort.dir === 'asc' ? '▲' : '▼'}</span>
+                        <span className="ml-1 text-mauve">{sort.dir === 'asc' ? '▲' : '▼'}</span>
                       )}
                       <ColResizer onMouseDown={(e) => startColResize(e, c.key)} />
                     </th>
@@ -739,7 +771,10 @@ export default function ProspectsApp({ stages, ratings }) {
               <tbody>
                 {prospects.length === 0 && (
                   <tr>
-                    <td colSpan={COLUMNS.length + 2} className="px-4 py-8 text-center text-muted">
+                    <td
+                      colSpan={COLUMNS.length + 2}
+                      className="px-4 py-14 text-center font-mono text-[11px] uppercase tracking-[0.18em] text-muted"
+                    >
                       No matches. Adjust filters or add a prospect.
                     </td>
                   </tr>
@@ -763,8 +798,8 @@ export default function ProspectsApp({ stages, ratings }) {
                       data-row-id={p.id}
                       data-active-row={isActive ? 'true' : undefined}
                       ref={(el) => (rowRefs.current[p.id] = el)}
-                      className={`group border-b border-blush/30 transition ${
-                        highlighted ? 'ring-2 ring-mauve' : ''
+                      className={`group border-b border-line/60 transition hover:bg-blush-soft/40 ${
+                        highlighted ? 'ring-2 ring-mauve ring-inset' : ''
                       }`}
                       style={rowStyle}
                     >
@@ -871,8 +906,11 @@ export default function ProspectsApp({ stages, ratings }) {
       )}
 
       {selected.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-charcoal text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-3 text-sm">
-          <span>{selected.size} selected</span>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-charcoal text-paper px-5 py-3 rounded-full shadow-pill flex items-center gap-3 text-sm">
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-paper/80">
+            <span className="num-tabular text-paper">{selected.size}</span> selected
+          </span>
+          <span className="w-px h-4 bg-paper/20" />
           <select
             onChange={(e) => {
               if (e.target.value) {
@@ -880,7 +918,7 @@ export default function ProspectsApp({ stages, ratings }) {
                 e.target.value = '';
               }
             }}
-            className="bg-charcoal border border-white/30 rounded px-2 py-0.5 text-sm"
+            className="bg-transparent border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             defaultValue=""
           >
             <option value="" disabled>Change rating…</option>
@@ -896,7 +934,7 @@ export default function ProspectsApp({ stages, ratings }) {
                 e.target.value = '';
               }
             }}
-            className="bg-charcoal border border-white/30 rounded px-2 py-0.5 text-sm"
+            className="bg-transparent border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             defaultValue=""
           >
             <option value="" disabled>Change stage…</option>
@@ -908,53 +946,61 @@ export default function ProspectsApp({ stages, ratings }) {
           </select>
           <button
             onClick={() => bulkSetRead(1)}
-            className="text-white/90 hover:text-white border border-white/30 rounded px-2 py-0.5"
+            className="text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             title="Mark selected as read"
           >
-            ✔️ Mark Read
+            ✔️ Read
           </button>
           <button
             onClick={() => bulkSetRead(0)}
-            className="text-white/90 hover:text-white border border-white/30 rounded px-2 py-0.5"
+            className="text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
             title="Mark selected as unread"
           >
-            ℹ️ Mark Unread
+            ℹ️ Unread
           </button>
-          <button onClick={bulkDelete} className="text-red-300 hover:text-red-200">
+          <span className="w-px h-4 bg-paper/20" />
+          <button
+            onClick={bulkDelete}
+            className="text-xs font-mono uppercase tracking-[0.12em] text-red-300 hover:text-red-200"
+          >
             Delete
           </button>
-          <button onClick={() => setSelected(new Set())} className="text-muted hover:text-white">
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs font-mono uppercase tracking-[0.12em] text-paper/50 hover:text-paper"
+          >
             Clear
           </button>
         </div>
       )}
 
       {importPreview && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-md p-5 max-w-md w-full shadow-xl">
-            <h3 className="text-lg font-semibold mb-2">Import preview</h3>
-            <p className="text-sm text-charcoal mb-1">
-              Found <strong>{importPreview.total}</strong> rows in CSV.
-            </p>
-            <p className="text-sm text-charcoal mb-1">
-              Will insert <strong>{importPreview.toInsert}</strong> new prospects.
-            </p>
-            <p className="text-sm text-muted mb-4">
-              Skipping <strong>{importPreview.skipped}</strong> duplicate emails.
-            </p>
+        <div className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-surface border border-line rounded-2xl p-7 max-w-md w-full shadow-card">
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
+              Preview
+            </div>
+            <h3 className="font-serif text-3xl text-charcoal mb-5 leading-tight">
+              Ready to import?
+            </h3>
+            <dl className="space-y-2.5 mb-7">
+              <Stat label="In CSV" value={importPreview.total} />
+              <Stat label="To insert" value={importPreview.toInsert} accent />
+              <Stat label="Duplicates skipped" value={importPreview.skipped} muted />
+            </dl>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
                   setImportPreview(null);
                   setImportCsvText('');
                 }}
-                className="px-3 py-1.5 text-sm bg-white border border-blush rounded-md"
+                className="px-4 py-2 text-xs font-mono uppercase tracking-[0.16em] text-charcoal-2 rounded-full hover:bg-blush-soft transition"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmImport}
-                className="px-3 py-1.5 text-sm bg-mauve text-white rounded-md"
+                className="px-5 py-2 text-xs font-mono uppercase tracking-[0.18em] bg-charcoal text-paper rounded-full hover:bg-mauve-deep transition"
               >
                 Import
               </button>
@@ -987,7 +1033,7 @@ const FilterPanel = forwardRef(function FilterPanel(
   return (
     <div
       ref={ref}
-      className="absolute z-30 mt-2 left-0 w-72 max-h-[70vh] overflow-y-auto bg-white border border-blush/60 rounded-md shadow-xl p-3"
+      className="absolute z-30 mt-3 left-0 w-72 max-h-[70vh] overflow-y-auto bg-surface border border-line rounded-2xl shadow-card p-4 bw-scroll"
     >
       <FilterSection label="Rating">
         {ratings.map((r) => (
@@ -1037,18 +1083,24 @@ const FilterPanel = forwardRef(function FilterPanel(
         />
       </FilterSection>
 
-      <div className="mt-3 pt-3 border-t border-blush/40 flex items-center justify-between text-xs">
-        <div className="flex gap-3">
-          <button onClick={onSelectAll} className="text-mauve hover:underline">
-            Select All
+      <div className="mt-4 pt-3 border-t border-line/70 flex items-center justify-between">
+        <div className="flex gap-4">
+          <button
+            onClick={onSelectAll}
+            className="font-mono text-[10px] uppercase tracking-[0.16em] text-mauve-deep hover:underline"
+          >
+            Select all
           </button>
-          <button onClick={onClearAll} className="text-muted hover:text-charcoal hover:underline">
-            Clear All
+          <button
+            onClick={onClearAll}
+            className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted hover:text-charcoal"
+          >
+            Clear all
           </button>
         </div>
         <button
           onClick={onDone}
-          className="px-3 py-1 bg-mauve text-white rounded-md text-xs hover:opacity-90"
+          className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] bg-charcoal text-paper rounded-full hover:bg-mauve-deep transition"
         >
           Done
         </button>
@@ -1057,10 +1109,30 @@ const FilterPanel = forwardRef(function FilterPanel(
   );
 });
 
+// Small key-value row used in the import preview. Label is mono-uppercased,
+// value is a tabular figure. `accent` makes the value mauve (the "this is
+// what's happening" number), `muted` softens it (the skip count).
+function Stat({ label, value, accent, muted }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-line/60 pb-2 last:border-b-0 last:pb-0">
+      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+        {label}
+      </dt>
+      <dd
+        className={`font-mono num-tabular text-2xl ${
+          accent ? 'text-mauve-deep' : muted ? 'text-muted' : 'text-charcoal'
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 function FilterSection({ label, children }) {
   return (
-    <div className="mb-3 last:mb-0">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">
+    <div className="mb-4 last:mb-0">
+      <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-muted mb-2">
         {label}
       </div>
       <div className="space-y-0.5">{children}</div>
@@ -1070,12 +1142,11 @@ function FilterSection({ label, children }) {
 
 function FilterRow({ checked, onChange, label }) {
   return (
-    <label className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-blush/20 cursor-pointer select-none">
+    <label className="flex items-center gap-2.5 px-1.5 py-1 rounded-md hover:bg-blush-soft/60 cursor-pointer select-none transition">
       <input
         type="checkbox"
         checked={checked}
         onChange={onChange}
-        className="accent-mauve"
       />
       {label}
     </label>
@@ -1238,7 +1309,7 @@ function NumberCell({ value, onSave }) {
           className="cell-input text-sm w-14 text-center"
         />
       ) : (
-        <span className={`cell-display text-sm inline-block w-10 text-center ${displayClass}`}>
+        <span className={`cell-display text-sm inline-block w-10 text-center font-mono num-tabular ${displayClass}`}>
           {num}
         </span>
       )}
@@ -1256,7 +1327,7 @@ function DaysAgoCell({ value }) {
   const color = daysAgoColor(n);
   return (
     <td className="px-2 py-1 align-top text-center">
-      <span style={{ color }} className="text-sm font-semibold">
+      <span style={{ color }} className="text-sm font-mono num-tabular font-semibold">
         {n}
       </span>
     </td>
@@ -1279,7 +1350,7 @@ function RatingCell({ value, options, onChange }) {
   const m = value ? RATING_META[value] : null;
   const buttonStyle = m
     ? { backgroundColor: m.bg, borderColor: m.border }
-    : { backgroundColor: 'transparent', borderColor: '#D0CAD2', borderStyle: 'dashed' };
+    : { backgroundColor: 'transparent', borderColor: '#E4DAD0', borderStyle: 'dashed' };
 
   function pick(v) {
     setOpen(false);
@@ -1297,10 +1368,10 @@ function RatingCell({ value, options, onChange }) {
         {value || <span className="text-muted/60 text-xs">—</span>}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 left-0 bg-white border border-blush/60 rounded-md shadow-lg p-1 flex flex-col gap-1">
+        <div className="absolute z-20 mt-1 left-0 bg-surface border border-line rounded-xl shadow-card p-1.5 flex flex-col gap-1">
           <button
             onClick={() => pick(null)}
-            className="w-8 h-8 rounded border border-dashed border-blush/60 text-xs text-muted hover:bg-blush/10"
+            className="w-8 h-8 rounded-full border border-dashed border-line text-xs text-muted hover:bg-blush-soft transition"
             title="Clear"
           >
             —
