@@ -399,119 +399,150 @@ const AUTO_EMAIL_STAGES = new Set([
   'Recycled', 'Rekindled',
 ]);
 
-// Stages that count as "active outreach" for the default Due query — the ones
-// where you're waiting on a reply. Tweakable from the caller via getDue().
-const DEFAULT_DUE_STAGES = ['Email 1','Email 2','Email 3','Email 4','Email 5','Email 6','Email 7'];
+// The canonical "Due" definition: stage ∈ {Email 1, Email 2, Email 3} AND
+// days_ago ≥ 3. Anything in Email 4–7 is in the same active-outreach bucket
+// but has already been nudged at least once and isn't "due for the next
+// touch" — we keep that distinction so the daily sweep only resurfaces rows
+// that need the next-in-sequence email.
+const DEFAULT_DUE_STAGES = ['Email 1', 'Email 2', 'Email 3'];
+const DUE_AGE_DAYS = 3;
+
+function isDueProspect(p) {
+  if (!p) return false;
+  if (!DEFAULT_DUE_STAGES.includes(p.stage)) return false;
+  const d = daysBetween(p.last_contact_date);
+  if (d == null) return false;
+  return d >= DUE_AGE_DAYS;
+}
+
+// Serializable shape returned by window.bloomtrack.getProspects(). Aliases
+// business_name → business per the automation spec, and adds two computed
+// fields the agent uses to make decisions without re-deriving them.
+function enrichProspect(p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    name: p.name,
+    business: p.business_name ?? null,
+    business_name: p.business_name ?? null,
+    email: p.email,
+    domain: p.domain,
+    rating: p.rating ?? null,
+    stage: p.stage || 'New',
+    emails_sent: p.emails_sent ?? 0,
+    days_ago: daysBetween(p.last_contact_date),
+    last_contact_date: p.last_contact_date ?? null,
+    claude_chat_link: p.claude_chat_link ?? null,
+    is_read: p.is_read ? 1 : 0,
+    gmail_labels: p.gmail_labels ?? null,
+    due: isDueProspect(p),
+  };
+}
 
 /**
- * Build the window.bloomtrack automation surface. Each method either reads
- * fresh data from the API or writes via the existing /api/prospects routes,
- * then triggers a UI refresh so the table reflects the change. All lookups
- * are by email (case-insensitive) — the stable external key.
+ * Build the window.bloomtrack automation surface against the component's
+ * in-memory canonical store. Reads are synchronous (the store IS the truth
+ * — the same array the table renders from). Writes go through the shared
+ * write path used by the UI dropdowns, so the table stays in sync.
+ *
+ * Lookups are by email, case-insensitive. Lookups by email scan the
+ * in-memory array, so they're effectively O(n) on ~300 rows = negligible.
  *
  * Return shapes:
- *   getProspects()           → Promise<Prospect[]>      (every row, unfiltered)
- *   getDue({days, stages})   → Promise<Prospect[]>      (filtered to active outreach past N days)
- *   findByEmail(email)       → Promise<Prospect|null>
- *   setStage(email, stage)   → Promise<Prospect>        (auto-stamps last_contact_date + bumps emails_sent on Email 1-7/Recycled/Rekindled)
- *   setRating(email, rating) → Promise<Prospect>        (emoji from RATINGS, or null to clear)
- *   markReplied(email)       → Promise<Prospect>        (alias for setStage(email, 'Replied'))
- *   markRead/markUnread      → Promise<Prospect>
- *   setLastContact(email, iso)→ Promise<Prospect>
- *   setChatLink(email, url)  → Promise<Prospect>
- *   refresh()                → Promise<void>            (re-pulls table + total count)
+ *   getProspects()             → Prospect[]       (synchronous; every row, ignoring filters/search)
+ *   getDue({days, stages})     → Prospect[]       (synchronous; default = Email 1-3 ∧ days_ago ≥ 3)
+ *   findByEmail(email)         → Prospect|null    (synchronous)
+ *   setStage(email, stage)     → Promise<Prospect> (auto-stamps last_contact_date + bumps emails_sent on AUTO_EMAIL_STAGES)
+ *   markReplied(email)         → Promise<Prospect> (sets stage='Replied', does NOT stamp last_contact_date or bump emails_sent)
+ *   setRating(email, rating)   → Promise<Prospect>
+ *   markRead/markUnread        → Promise<Prospect>
+ *   setLastContact(email, iso) → Promise<Prospect>
+ *   setChatLink(email, url)    → Promise<Prospect>
+ *   refresh()                  → Promise<void>    (re-pulls the canonical store from the server)
  *
- * All write methods throw `Error('Prospect not found: <email>')` if the email
- * doesn't match. setStage / setRating throw on invalid stage / rating values
- * (validation also enforced server-side; the client check just fails faster).
+ * All write methods throw `Error('Prospect not found: <email>')` if the
+ * email doesn't match. setStage / setRating throw on invalid values.
+ *
+ * @param {object} bridge
+ * @param {string[]} bridge.stages              valid stage names
+ * @param {string[]} bridge.ratings             valid rating emoji
+ * @param {Set<string>} bridge.autoEmailStages  stages that auto-stamp + bump
+ * @param {() => Prospect[]} bridge.getAllProspects   live reader over the canonical store
+ * @param {(id, patch) => Promise<Prospect>} bridge.updateProspectById   shared write path with the UI
+ * @param {() => Promise<void>} bridge.refresh  reloads the canonical store
  */
-function makeBloomtrackApi({ stages, ratings, autoEmailStages, refresh }) {
+function makeBloomtrackApi({
+  stages,
+  ratings,
+  autoEmailStages,
+  getAllProspects,
+  updateProspectById,
+  refresh,
+}) {
   function todayIso() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
-  function daysBetween(dateStr) {
-    if (!dateStr) return null;
-    const t = Date.parse(dateStr);
-    if (Number.isNaN(t)) return null;
-    const now = new Date();
-    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-    const then = Date.UTC(
-      new Date(t).getUTCFullYear(),
-      new Date(t).getUTCMonth(),
-      new Date(t).getUTCDate()
-    );
-    return Math.floor((today - then) / 86400000);
-  }
-  async function fetchAll() {
-    const res = await fetch('/api/prospects');
-    if (!res.ok) throw new Error(`getProspects failed: ${res.status}`);
-    const data = await res.json();
-    return data.prospects || [];
-  }
-  async function findByEmail(email) {
+  function findRaw(email) {
     if (!email) return null;
-    const wanted = email.toLowerCase();
-    const all = await fetchAll();
-    return all.find((p) => (p.email || '').toLowerCase() === wanted) || null;
-  }
-  async function patchById(id, patch) {
-    const res = await fetch(`/api/prospects/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw new Error(`save failed (${res.status}): ${errBody}`);
-    }
-    const data = await res.json();
-    await refresh();
-    return data.prospect;
+    const wanted = String(email).toLowerCase();
+    return getAllProspects().find((p) => (p.email || '').toLowerCase() === wanted) || null;
   }
   async function patchByEmail(email, patch) {
-    const p = await findByEmail(email);
+    const p = findRaw(email);
     if (!p) throw new Error(`Prospect not found: ${email}`);
-    return patchById(p.id, patch);
+    const updated = await updateProspectById(p.id, patch);
+    return enrichProspect(updated);
   }
 
   return {
-    // ----- Read -----
-    getProspects: fetchAll,
-    async getDue({ days = 3, stages: stagesArg = DEFAULT_DUE_STAGES } = {}) {
-      const all = await fetchAll();
-      const stageSet = new Set(stagesArg);
-      return all.filter((p) => {
-        if (!stageSet.has(p.stage)) return false;
-        const d = daysBetween(p.last_contact_date);
-        // No last contact yet → treat as infinitely overdue so it surfaces.
-        return d == null || d >= days;
-      });
+    // ----- Read (synchronous — the store is the truth) -----
+    getProspects() {
+      return getAllProspects().map(enrichProspect);
     },
-    findByEmail,
+    getDue({ days = DUE_AGE_DAYS, stages: stagesArg = DEFAULT_DUE_STAGES } = {}) {
+      const stageSet = new Set(stagesArg);
+      return getAllProspects()
+        .filter((p) => stageSet.has(p.stage))
+        .filter((p) => {
+          const d = daysBetween(p.last_contact_date);
+          return d != null && d >= days;
+        })
+        .map(enrichProspect);
+    },
+    findByEmail(email) {
+      const p = findRaw(email);
+      return p ? enrichProspect(p) : null;
+    },
 
     // ----- Write -----
     async setStage(email, stage) {
       if (!stages.includes(stage)) {
         throw new Error(`Invalid stage: ${stage}. Valid: ${stages.join(', ')}`);
       }
-      const p = await findByEmail(email);
+      const p = findRaw(email);
       if (!p) throw new Error(`Prospect not found: ${email}`);
       const patch = { stage };
       if (autoEmailStages.has(stage)) {
         patch.last_contact_date = todayIso();
         patch.emails_sent = (p.emails_sent || 0) + 1;
       }
-      return patchById(p.id, patch);
+      const updated = await updateProspectById(p.id, patch);
+      return enrichProspect(updated);
+    },
+    async markReplied(email) {
+      const p = findRaw(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      // Explicit: stage='Replied' only. No last_contact_date stamp, no
+      // emails_sent bump — Replied means *they* sent something, not us.
+      const updated = await updateProspectById(p.id, { stage: 'Replied' });
+      return enrichProspect(updated);
     },
     async setRating(email, rating) {
       if (rating != null && !ratings.includes(rating)) {
         throw new Error(`Invalid rating: ${rating}. Valid: ${ratings.join(' ')}`);
       }
       return patchByEmail(email, { rating });
-    },
-    markReplied(email) {
-      return this.setStage(email, 'Replied');
     },
     markRead(email) {
       return patchByEmail(email, { is_read: 1 });
@@ -534,12 +565,19 @@ function makeBloomtrackApi({ stages, ratings, autoEmailStages, refresh }) {
     ratings: [...ratings],
     AUTO_EMAIL_STAGES: [...autoEmailStages],
     DEFAULT_DUE_STAGES: [...DEFAULT_DUE_STAGES],
+    DUE_AGE_DAYS,
   };
 }
 
 export default function ProspectsApp({ stages, ratings }) {
-  const [prospects, setProspects] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
+  // ─── Canonical store ───────────────────────────────────────────────────
+  // `allProspects` is the single source of truth. The table renders from a
+  // memoized filtered/sorted projection of this array. Writes patch this
+  // array directly (optimistic) and re-confirm against the server response.
+  // No more server-side filter fetches — that's what was causing the silent
+  // revert and filter-desync bugs.
+  const [allProspects, setAllProspects] = useState([]);
+  const [storeReady, setStoreReady] = useState(false);
   const [search, setSearch] = useState('');
   // Filter sets hold the *checked* (visible) options. Default: everything checked.
   const allRatingOpts = useMemo(() => [...ratings, NO_RATING], [ratings]);
@@ -547,6 +585,7 @@ export default function ProspectsApp({ stages, ratings }) {
   const [ratingChecked, setRatingChecked] = useState(() => new Set(allRatingOpts));
   const [stageChecked, setStageChecked] = useState(() => new Set(allStageOpts));
   const [readChecked, setReadChecked] = useState(() => new Set(READ_OPTIONS));
+  const [dueOnly, setDueOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -563,6 +602,11 @@ export default function ProspectsApp({ stages, ratings }) {
   const rowRefs = useRef({});
   const fileInputRef = useRef(null);
   const hydratedWidthsRef = useRef(false);
+
+  // Live mirror of allProspects for use in stable callbacks (window.bloomtrack
+  // closures, write helpers). Keeps reads O(1) without re-running effects.
+  const allProspectsRef = useRef(allProspects);
+  allProspectsRef.current = allProspects;
 
   // Load saved column widths once on mount.
   useEffect(() => {
@@ -677,9 +721,8 @@ export default function ProspectsApp({ stages, ratings }) {
     COLUMNS.reduce((sum, c) => sum + (colWidths[c.key] ?? COL_DEFAULTS[c.key] ?? 100), 0) +
     (colWidths.__delete ?? COL_DEFAULTS.__delete);
 
-  // Apply the (checked) sets to URL params. If every option in a section is
-  // checked, send nothing (= no filter). If zero are checked, send a sentinel
-  // so the server returns no rows for that section.
+  // Build query string for CSV export (server still does the filtering for
+  // exports so the download matches what the user sees).
   function appendFilterParams(url) {
     if (search) url.searchParams.set('search', search);
     if (ratingChecked.size < allRatingOpts.length) {
@@ -692,7 +735,6 @@ export default function ProspectsApp({ stages, ratings }) {
     }
     if (readChecked.size < READ_OPTIONS.length) {
       if (readChecked.size === 0) {
-        // Both unchecked means hide every row — send a sentinel.
         url.searchParams.append('read', '__nomatch__');
       } else {
         readChecked.forEach((r) => url.searchParams.append('read', r));
@@ -700,50 +742,115 @@ export default function ProspectsApp({ stages, ratings }) {
     }
   }
 
-  // Monotonic request tokens. When the user toggles filters quickly the older
-  // in-flight fetches can resolve AFTER newer ones — without a token the stale
-  // response stomps on the fresh state and the filter looks like it didn't
-  // take. We drop any response whose token is no longer the latest.
-  const loadProspectsTokenRef = useRef(0);
-  const loadTotalTokenRef = useRef(0);
+  // Monotonic request token. When the user triggers loadAll repeatedly
+  // (writes, imports, manual refresh), an older response can resolve after
+  // a newer one — we drop any response whose token isn't the latest.
+  const loadAllTokenRef = useRef(0);
 
-  const loadProspects = useCallback(async () => {
-    const token = ++loadProspectsTokenRef.current;
-    const url = new URL('/api/prospects', window.location.origin);
-    appendFilterParams(url);
-    if (sort.key !== 'default') {
-      url.searchParams.set('sort', sort.key);
-      url.searchParams.set('dir', sort.dir);
-    }
-    const res = await fetch(url);
-    const data = await res.json();
-    if (token !== loadProspectsTokenRef.current) return;
-    setProspects(data.prospects || []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, ratingChecked, stageChecked, readChecked, sort]);
-
-  const loadTotal = useCallback(async () => {
-    const token = ++loadTotalTokenRef.current;
+  const loadAll = useCallback(async () => {
+    const token = ++loadAllTokenRef.current;
     const res = await fetch('/api/prospects');
+    if (!res.ok) return;
     const data = await res.json();
-    if (token !== loadTotalTokenRef.current) return;
-    setTotalCount((data.prospects || []).length);
+    if (token !== loadAllTokenRef.current) return;
+    setAllProspects(data.prospects || []);
+    setStoreReady(true);
   }, []);
 
+  // Initial load. Runs once.
   useEffect(() => {
-    loadProspects();
-  }, [loadProspects]);
+    loadAll();
+  }, [loadAll]);
 
-  useEffect(() => {
-    loadTotal();
-  }, [loadTotal]);
+  // ─── Client-side filter + sort projection ──────────────────────────────
+  // Pure derivation from (allProspects, filter sets, search, sort). No
+  // async, no network, no race conditions. Toggling a checkbox re-renders
+  // synchronously with the new filter applied — the badge, the row count,
+  // and the rendered rows are always one consistent snapshot.
+  const visibleProspects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const ratingAll = ratingChecked.size === allRatingOpts.length;
+    const stageAll = stageChecked.size === allStageOpts.length;
+    const readAll = readChecked.size === READ_OPTIONS.length;
 
-  // Bridge for the window.bloomtrack API. Keeps the API methods stable
-  // (installed once on mount) while letting them call the latest loaders.
-  const refreshRef = useRef(() => {});
-  refreshRef.current = async () => {
-    await Promise.all([loadProspects(), loadTotal()]);
-  };
+    let rows = allProspects.filter((p) => {
+      if (q) {
+        const hay = [p.name, p.business_name, p.email, p.domain, p.stage, p.rating]
+          .map((x) => (x || '').toString().toLowerCase())
+          .join(' ');
+        if (!hay.includes(q)) return false;
+      }
+      if (!ratingAll) {
+        const key = p.rating || NO_RATING;
+        if (!ratingChecked.has(key)) return false;
+      }
+      if (!stageAll) {
+        if (!stageChecked.has(p.stage || 'New')) return false;
+      }
+      if (!readAll) {
+        const k = p.is_read ? 'read' : 'unread';
+        if (!readChecked.has(k)) return false;
+      }
+      if (dueOnly && !isDueProspect(p)) return false;
+      return true;
+    });
+
+    // Sort. Default = 'New' stage on top, then last_contact_date DESC,
+    // then id DESC. Column-header sort overrides default with the chosen
+    // direction.
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    function defaultCmp(a, b) {
+      const aNew = a.stage === 'New' ? 0 : 1;
+      const bNew = b.stage === 'New' ? 0 : 1;
+      if (aNew !== bNew) return aNew - bNew;
+      const aD = a.last_contact_date || '';
+      const bD = b.last_contact_date || '';
+      if (aD !== bD) {
+        if (!aD) return 1;
+        if (!bD) return -1;
+        return aD > bD ? -1 : 1;
+      }
+      return (b.id || 0) - (a.id || 0);
+    }
+    function fieldCmp(key) {
+      return (a, b) => {
+        let av = a[key];
+        let bv = b[key];
+        if (key === 'days_ago') {
+          // days_ago is derived. Asc means freshest first (smallest number).
+          // Nulls (no last_contact_date) sort to the end regardless of dir.
+          av = daysBetween(a.last_contact_date);
+          bv = daysBetween(b.last_contact_date);
+        }
+        const aNull = av == null || av === '';
+        const bNull = bv == null || bv === '';
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        return String(av).localeCompare(String(bv)) * dir;
+      };
+    }
+
+    const sorted = [...rows];
+    if (sort.key === 'default') sorted.sort(defaultCmp);
+    else sorted.sort(fieldCmp(sort.key));
+    return sorted;
+  }, [allProspects, search, ratingChecked, stageChecked, readChecked, dueOnly, sort, allRatingOpts.length, allStageOpts.length]);
+
+  const dueCount = useMemo(
+    () => allProspects.reduce((n, p) => n + (isDueProspect(p) ? 1 : 0), 0),
+    [allProspects]
+  );
+
+  // ─── Bridge to window.bloomtrack ───────────────────────────────────────
+  // Refs let us hand the API stable closures over the live store + write
+  // path without recreating the API on every render.
+  const getAllRef = useRef(() => []);
+  getAllRef.current = () => allProspectsRef.current;
+  const updateProspectByIdRef = useRef(async () => null);
+  const refreshRef = useRef(async () => {});
+  refreshRef.current = () => loadAll();
 
   // Install / tear down the window.bloomtrack automation surface.
   useEffect(() => {
@@ -751,11 +858,12 @@ export default function ProspectsApp({ stages, ratings }) {
       stages,
       ratings,
       autoEmailStages: AUTO_EMAIL_STAGES,
+      getAllProspects: () => getAllRef.current(),
+      updateProspectById: (id, patch) => updateProspectByIdRef.current(id, patch),
       refresh: () => refreshRef.current(),
     });
     if (typeof window !== 'undefined') {
       window.bloomtrack = api;
-      // One-time console hint so the user discovers the surface from devtools.
       // eslint-disable-next-line no-console
       console.info(
         '[bloomtrack] window.bloomtrack ready:\n  ' +
@@ -772,9 +880,11 @@ export default function ProspectsApp({ stages, ratings }) {
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +
     (allStageOpts.length - stageChecked.size) +
-    (READ_OPTIONS.length - readChecked.size);
+    (READ_OPTIONS.length - readChecked.size) +
+    (dueOnly ? 1 : 0);
   const hasActiveFilter = search.length > 0 || hiddenCount > 0;
-  const showEmptyState = totalCount === 0 && !hasActiveFilter;
+  const totalCount = allProspects.length;
+  const showEmptyState = storeReady && totalCount === 0 && !hasActiveFilter;
 
   function toggleInSet(setter, value) {
     setter((prev) => {
@@ -802,28 +912,48 @@ export default function ProspectsApp({ stages, ratings }) {
     });
   }
 
-  async function updateProspect(id, patch, { optimistic = true } = {}) {
+  // Canonical write path. Used by the UI cells (rating, stage, etc.) AND
+  // by window.bloomtrack.* — there's only one path, so there's only one
+  // place a write can go wrong. Writes are keyed by stable id, patch the
+  // canonical `allProspects` array (not any filtered view), then replace
+  // the row with the server's confirmed row on success.
+  //
+  // The silent-revert bug fix: the previous architecture re-fetched
+  // filtered rows from the server on every filter change. A PUT in flight
+  // could be raced by a GET that returned pre-write rows, and the row in
+  // the filtered view would silently revert to the old stage. Now there's
+  // no per-filter-change refetch — the store is the single truth and
+  // filter changes are pure derivations from it.
+  const updateProspect = useCallback(async (id, patch) => {
     let prevSnapshot;
-    if (optimistic) {
-      setProspects((prev) => {
-        prevSnapshot = prev;
-        return prev.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      });
-    }
+    setAllProspects((prev) => {
+      prevSnapshot = prev;
+      return prev.map((p) => (p.id === id ? { ...p, ...patch } : p));
+    });
     try {
       const res = await fetch(`/api/prospects/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error('Save failed');
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`save failed (${res.status}) ${body}`);
+      }
       const data = await res.json();
-      setProspects((prev) => prev.map((p) => (p.id === id ? data.prospect : p)));
+      const fresh = data.prospect;
+      setAllProspects((prev) => prev.map((p) => (p.id === id ? fresh : p)));
+      return fresh;
     } catch (e) {
-      if (prevSnapshot) setProspects(prevSnapshot);
+      if (prevSnapshot) setAllProspects(prevSnapshot);
+      // eslint-disable-next-line no-alert
       alert('Save failed: ' + e.message);
+      throw e;
     }
-  }
+  }, []);
+
+  // Expose the canonical write path to window.bloomtrack via the bridge ref.
+  updateProspectByIdRef.current = updateProspect;
 
   function toggleRead(p) {
     const next = p.is_read ? 0 : 1;
@@ -859,7 +989,8 @@ export default function ProspectsApp({ stages, ratings }) {
     if (res.ok) {
       const data = await res.json();
       setQuickAdd({ name: '', business_name: '', email: '', domain: '' });
-      await Promise.all([loadProspects(), loadTotal()]);
+      // Push directly into the canonical store — no refetch needed.
+      setAllProspects((prev) => [data.prospect, ...prev]);
       setHighlightId(data.prospect.id);
       setTimeout(() => setHighlightId(null), 1800);
     }
@@ -870,13 +1001,12 @@ export default function ProspectsApp({ stages, ratings }) {
       setPendingDelete(null);
       const res = await fetch(`/api/prospects/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setProspects((prev) => prev.filter((p) => p.id !== id));
+        setAllProspects((prev) => prev.filter((p) => p.id !== id));
         setSelected((prev) => {
           const n = new Set(prev);
           n.delete(id);
           return n;
         });
-        loadTotal();
       }
     } else {
       setPendingDelete(id);
@@ -889,61 +1019,45 @@ export default function ProspectsApp({ stages, ratings }) {
   async function bulkDelete() {
     if (selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} prospect(s)?`)) return;
-    const ids = [...selected];
-    await Promise.all(ids.map((id) => fetch(`/api/prospects/${id}`, { method: 'DELETE' })));
+    const ids = new Set(selected);
+    await Promise.all(
+      [...ids].map((id) => fetch(`/api/prospects/${id}`, { method: 'DELETE' }))
+    );
+    setAllProspects((prev) => prev.filter((p) => !ids.has(p.id)));
     setSelected(new Set());
-    await Promise.all([loadProspects(), loadTotal()]);
   }
 
   async function bulkStage(newStage) {
     if (selected.size === 0) return;
     const ids = [...selected];
+    // updateProspect already does optimistic + server confirm per row.
     await Promise.all(
       ids.map((id) => {
-        const p = prospects.find((x) => x.id === id);
+        const p = allProspectsRef.current.find((x) => x.id === id);
         const patch = { stage: newStage };
         if (AUTO_EMAIL_STAGES.has(newStage) && p) {
           patch.last_contact_date = todayIso();
           patch.emails_sent = (p.emails_sent || 0) + 1;
         }
-        return fetch(`/api/prospects/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        });
+        return updateProspect(id, patch).catch(() => null);
       })
     );
-    await loadProspects();
   }
 
   async function bulkSetRead(value) {
     if (selected.size === 0) return;
     const ids = [...selected];
     await Promise.all(
-      ids.map((id) =>
-        fetch(`/api/prospects/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_read: value ? 1 : 0 }),
-        })
-      )
+      ids.map((id) => updateProspect(id, { is_read: value ? 1 : 0 }).catch(() => null))
     );
-    await loadProspects();
   }
 
   async function bulkRating(newRating) {
     if (selected.size === 0) return;
     const ids = [...selected];
     await Promise.all(
-      ids.map((id) =>
-        fetch(`/api/prospects/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rating: newRating }),
-        })
-      )
+      ids.map((id) => updateProspect(id, { rating: newRating }).catch(() => null))
     );
-    await loadProspects();
   }
 
   function onFilePick(e) {
@@ -976,7 +1090,7 @@ export default function ProspectsApp({ stages, ratings }) {
       const data = await res.json();
       setImportPreview(null);
       setImportCsvText('');
-      await Promise.all([loadProspects(), loadTotal()]);
+      await loadAll();
       alert(`Imported ${data.imported}, skipped ${data.skipped}.`);
     } else {
       alert('Import failed');
@@ -998,8 +1112,8 @@ export default function ProspectsApp({ stages, ratings }) {
     });
   }
   function toggleSelectAll() {
-    if (selected.size === prospects.length) setSelected(new Set());
-    else setSelected(new Set(prospects.map((p) => p.id)));
+    if (selected.size === visibleProspects.length) setSelected(new Set());
+    else setSelected(new Set(visibleProspects.map((p) => p.id)));
   }
 
   return (
@@ -1067,11 +1181,32 @@ export default function ProspectsApp({ stages, ratings }) {
               />
             )}
           </div>
+
+          {/* Due quick-filter. One click filters the table to rows where
+              stage ∈ {Email 1, 2, 3} AND days_ago ≥ 3 — the daily-sweep
+              shortlist. Count badge shows total due across the whole
+              store, not the current view, so it stays meaningful even
+              when other filters are on. */}
+          <button
+            onClick={() => setDueOnly((v) => !v)}
+            className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
+              dueOnly
+                ? 'bg-mauve-deep text-white'
+                : 'text-charcoal-2 hover:bg-blush-soft'
+            }`}
+            title={dueOnly ? 'Showing only due prospects — click to clear' : `Show only prospects due for next email (stage Email 1-3, ${DUE_AGE_DAYS}+ days)`}
+          >
+            <Icon name="bell" className="w-3.5 h-3.5" />
+            <span>Due</span>
+            {dueCount > 0 && (
+              <span className="text-[10px] opacity-80">· {dueCount}</span>
+            )}
+          </button>
         </div>
 
         <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
           {hasActiveFilter
-            ? `${prospects.length} / ${totalCount} shown`
+            ? `${visibleProspects.length} / ${totalCount} shown`
             : `${totalCount} total`}
         </div>
 
@@ -1201,7 +1336,7 @@ export default function ProspectsApp({ stages, ratings }) {
                   <th className="relative px-3 py-3 text-left">
                     <input
                       type="checkbox"
-                      checked={prospects.length > 0 && selected.size === prospects.length}
+                      checked={visibleProspects.length > 0 && selected.size === visibleProspects.length}
                       onChange={toggleSelectAll}
                     />
                     <ColResizer onMouseDown={(e) => startColResize(e, '__select')} />
@@ -1227,7 +1362,7 @@ export default function ProspectsApp({ stages, ratings }) {
                 </tr>
               </thead>
               <tbody>
-                {prospects.length === 0 && (
+                {visibleProspects.length === 0 && (
                   <tr>
                     <td
                       colSpan={COLUMNS.length + 2}
@@ -1237,7 +1372,7 @@ export default function ProspectsApp({ stages, ratings }) {
                     </td>
                   </tr>
                 )}
-                {prospects.map((p) => {
+                {visibleProspects.map((p) => {
                   const stageKey = p.stage || 'New';
                   const c = stageStyle(stageKey);
                   const highlighted = highlightId === p.id;
@@ -1322,7 +1457,7 @@ export default function ProspectsApp({ stages, ratings }) {
                         value={p.emails_sent ?? 0}
                         onSave={(v) => updateProspect(p.id, { emails_sent: parseInt(v, 10) || 0 })}
                       />
-                      <DaysAgoCell value={p.last_contact_date} />
+                      <DaysAgoCell value={p.last_contact_date} due={isDueProspect(p)} />
                       <EditableCell
                         value={p.last_contact_date}
                         type="date"
@@ -1811,7 +1946,7 @@ function NumberCell({ value, onSave }) {
   );
 }
 
-function DaysAgoCell({ value }) {
+function DaysAgoCell({ value, due }) {
   const n = daysBetween(value);
   if (n == null) {
     return (
@@ -1821,8 +1956,18 @@ function DaysAgoCell({ value }) {
   const color = daysAgoColor(n);
   return (
     <td className="px-2 py-1 align-top text-center">
-      <span style={{ color }} className="text-sm font-mono num-tabular font-semibold">
-        {n}
+      <span className="inline-flex items-center gap-1.5">
+        {due && (
+          <span
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-mauve-deep text-white"
+            title="Due for next email (Email 1-3, 3+ days)"
+          >
+            <Icon name="bell" className="w-2.5 h-2.5" />
+          </span>
+        )}
+        <span style={{ color }} className="text-sm font-mono num-tabular font-semibold">
+          {n}
+        </span>
       </span>
     </td>
   );
