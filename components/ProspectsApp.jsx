@@ -399,6 +399,144 @@ const AUTO_EMAIL_STAGES = new Set([
   'Recycled', 'Rekindled',
 ]);
 
+// Stages that count as "active outreach" for the default Due query — the ones
+// where you're waiting on a reply. Tweakable from the caller via getDue().
+const DEFAULT_DUE_STAGES = ['Email 1','Email 2','Email 3','Email 4','Email 5','Email 6','Email 7'];
+
+/**
+ * Build the window.bloomtrack automation surface. Each method either reads
+ * fresh data from the API or writes via the existing /api/prospects routes,
+ * then triggers a UI refresh so the table reflects the change. All lookups
+ * are by email (case-insensitive) — the stable external key.
+ *
+ * Return shapes:
+ *   getProspects()           → Promise<Prospect[]>      (every row, unfiltered)
+ *   getDue({days, stages})   → Promise<Prospect[]>      (filtered to active outreach past N days)
+ *   findByEmail(email)       → Promise<Prospect|null>
+ *   setStage(email, stage)   → Promise<Prospect>        (auto-stamps last_contact_date + bumps emails_sent on Email 1-7/Recycled/Rekindled)
+ *   setRating(email, rating) → Promise<Prospect>        (emoji from RATINGS, or null to clear)
+ *   markReplied(email)       → Promise<Prospect>        (alias for setStage(email, 'Replied'))
+ *   markRead/markUnread      → Promise<Prospect>
+ *   setLastContact(email, iso)→ Promise<Prospect>
+ *   setChatLink(email, url)  → Promise<Prospect>
+ *   refresh()                → Promise<void>            (re-pulls table + total count)
+ *
+ * All write methods throw `Error('Prospect not found: <email>')` if the email
+ * doesn't match. setStage / setRating throw on invalid stage / rating values
+ * (validation also enforced server-side; the client check just fails faster).
+ */
+function makeBloomtrackApi({ stages, ratings, autoEmailStages, refresh }) {
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function daysBetween(dateStr) {
+    if (!dateStr) return null;
+    const t = Date.parse(dateStr);
+    if (Number.isNaN(t)) return null;
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const then = Date.UTC(
+      new Date(t).getUTCFullYear(),
+      new Date(t).getUTCMonth(),
+      new Date(t).getUTCDate()
+    );
+    return Math.floor((today - then) / 86400000);
+  }
+  async function fetchAll() {
+    const res = await fetch('/api/prospects');
+    if (!res.ok) throw new Error(`getProspects failed: ${res.status}`);
+    const data = await res.json();
+    return data.prospects || [];
+  }
+  async function findByEmail(email) {
+    if (!email) return null;
+    const wanted = email.toLowerCase();
+    const all = await fetchAll();
+    return all.find((p) => (p.email || '').toLowerCase() === wanted) || null;
+  }
+  async function patchById(id, patch) {
+    const res = await fetch(`/api/prospects/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new Error(`save failed (${res.status}): ${errBody}`);
+    }
+    const data = await res.json();
+    await refresh();
+    return data.prospect;
+  }
+  async function patchByEmail(email, patch) {
+    const p = await findByEmail(email);
+    if (!p) throw new Error(`Prospect not found: ${email}`);
+    return patchById(p.id, patch);
+  }
+
+  return {
+    // ----- Read -----
+    getProspects: fetchAll,
+    async getDue({ days = 3, stages: stagesArg = DEFAULT_DUE_STAGES } = {}) {
+      const all = await fetchAll();
+      const stageSet = new Set(stagesArg);
+      return all.filter((p) => {
+        if (!stageSet.has(p.stage)) return false;
+        const d = daysBetween(p.last_contact_date);
+        // No last contact yet → treat as infinitely overdue so it surfaces.
+        return d == null || d >= days;
+      });
+    },
+    findByEmail,
+
+    // ----- Write -----
+    async setStage(email, stage) {
+      if (!stages.includes(stage)) {
+        throw new Error(`Invalid stage: ${stage}. Valid: ${stages.join(', ')}`);
+      }
+      const p = await findByEmail(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      const patch = { stage };
+      if (autoEmailStages.has(stage)) {
+        patch.last_contact_date = todayIso();
+        patch.emails_sent = (p.emails_sent || 0) + 1;
+      }
+      return patchById(p.id, patch);
+    },
+    async setRating(email, rating) {
+      if (rating != null && !ratings.includes(rating)) {
+        throw new Error(`Invalid rating: ${rating}. Valid: ${ratings.join(' ')}`);
+      }
+      return patchByEmail(email, { rating });
+    },
+    markReplied(email) {
+      return this.setStage(email, 'Replied');
+    },
+    markRead(email) {
+      return patchByEmail(email, { is_read: 1 });
+    },
+    markUnread(email) {
+      return patchByEmail(email, { is_read: 0 });
+    },
+    setLastContact(email, iso) {
+      return patchByEmail(email, { last_contact_date: iso || null });
+    },
+    setChatLink(email, url) {
+      return patchByEmail(email, { claude_chat_link: url || null });
+    },
+
+    // ----- UI -----
+    refresh,
+
+    // ----- Constants (handy for the caller) -----
+    stages: [...stages],
+    ratings: [...ratings],
+    AUTO_EMAIL_STAGES: [...autoEmailStages],
+    DEFAULT_DUE_STAGES: [...DEFAULT_DUE_STAGES],
+  };
+}
+
 export default function ProspectsApp({ stages, ratings }) {
   const [prospects, setProspects] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -562,7 +700,15 @@ export default function ProspectsApp({ stages, ratings }) {
     }
   }
 
+  // Monotonic request tokens. When the user toggles filters quickly the older
+  // in-flight fetches can resolve AFTER newer ones — without a token the stale
+  // response stomps on the fresh state and the filter looks like it didn't
+  // take. We drop any response whose token is no longer the latest.
+  const loadProspectsTokenRef = useRef(0);
+  const loadTotalTokenRef = useRef(0);
+
   const loadProspects = useCallback(async () => {
+    const token = ++loadProspectsTokenRef.current;
     const url = new URL('/api/prospects', window.location.origin);
     appendFilterParams(url);
     if (sort.key !== 'default') {
@@ -571,13 +717,16 @@ export default function ProspectsApp({ stages, ratings }) {
     }
     const res = await fetch(url);
     const data = await res.json();
+    if (token !== loadProspectsTokenRef.current) return;
     setProspects(data.prospects || []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, ratingChecked, stageChecked, readChecked, sort]);
 
   const loadTotal = useCallback(async () => {
+    const token = ++loadTotalTokenRef.current;
     const res = await fetch('/api/prospects');
     const data = await res.json();
+    if (token !== loadTotalTokenRef.current) return;
     setTotalCount((data.prospects || []).length);
   }, []);
 
@@ -588,6 +737,37 @@ export default function ProspectsApp({ stages, ratings }) {
   useEffect(() => {
     loadTotal();
   }, [loadTotal]);
+
+  // Bridge for the window.bloomtrack API. Keeps the API methods stable
+  // (installed once on mount) while letting them call the latest loaders.
+  const refreshRef = useRef(() => {});
+  refreshRef.current = async () => {
+    await Promise.all([loadProspects(), loadTotal()]);
+  };
+
+  // Install / tear down the window.bloomtrack automation surface.
+  useEffect(() => {
+    const api = makeBloomtrackApi({
+      stages,
+      ratings,
+      autoEmailStages: AUTO_EMAIL_STAGES,
+      refresh: () => refreshRef.current(),
+    });
+    if (typeof window !== 'undefined') {
+      window.bloomtrack = api;
+      // One-time console hint so the user discovers the surface from devtools.
+      // eslint-disable-next-line no-console
+      console.info(
+        '[bloomtrack] window.bloomtrack ready:\n  ' +
+          Object.keys(api).filter((k) => typeof api[k] === 'function').join(', ')
+      );
+    }
+    return () => {
+      if (typeof window !== 'undefined' && window.bloomtrack === api) {
+        delete window.bloomtrack;
+      }
+    };
+  }, [stages, ratings]);
 
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +
