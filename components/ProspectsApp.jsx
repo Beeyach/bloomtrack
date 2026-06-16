@@ -54,8 +54,6 @@ const STAGE_META = {
   'Email 3':  { icon: 'send',           bg: '#E8C99D',     border: '#8B6638' },
   'Email 4':  { icon: 'send',           bg: '#DFBA85',     border: '#7C572A' },
   'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
-  'Email 6':  { icon: 'send',           bg: '#C49558',     border: '#5E3A12' },
-  'Email 7':  { icon: 'send',           bg: '#B2814A',     border: '#4E2E0B' },
   Recycled:   { icon: 'recycle',        bg: '#F2D2B3',     border: '#B8723E' },
   Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
   Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
@@ -63,6 +61,8 @@ const STAGE_META = {
   Potential:  { icon: 'trending-up',    bg: '#FBCEA3',     border: '#B86A2A' },
   Nudge:      { icon: 'bell',           bg: '#F2DF92',     border: '#9C8425' },
   Booked:     { icon: 'calendar-check', bg: '#A4D7A4',     border: '#1F7A1F' },
+  Client:           { icon: 'briefcase', bg: '#9DCC9D',    border: '#1A6B1A' },
+  'Payment Awaiting': { icon: 'clock',   bg: '#FBE6A8',    border: '#9C7E0F' },
   Unread:     { icon: 'mail-open',      bg: '#DDD2BD',     border: '#8B7A5E' },
   Lost:       { icon: 'x-circle',       bg: '#D6CCBD',     border: '#7A6E5E', faded: true },
   Closed:     { icon: 'check-circle',   bg: '#B5DBB5',     border: '#296629' },
@@ -299,6 +299,20 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <path d="m6 9 6 6 6-6" />
         </svg>
       );
+    case 'briefcase':
+      return (
+        <svg {...common}>
+          <rect width="20" height="14" x="2" y="7" rx="2" />
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+        </svg>
+      );
+    case 'clock':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -395,7 +409,7 @@ function StagePicker({ value, stages, onChange }) {
 
 // Stages that imply an email just went out — bumps emails_sent + last_contact_date.
 const AUTO_EMAIL_STAGES = new Set([
-  'Email 1', 'Email 2', 'Email 3', 'Email 4', 'Email 5', 'Email 6', 'Email 7',
+  'Email 1', 'Email 2', 'Email 3', 'Email 4', 'Email 5',
   'Recycled', 'Rekindled',
 ]);
 
