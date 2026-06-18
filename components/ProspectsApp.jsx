@@ -64,6 +64,7 @@ const STAGE_META = {
   Client:           { icon: 'briefcase', bg: '#9DCC9D',    border: '#1A6B1A' },
   'Payment Awaiting': { icon: 'clock',   bg: '#FBE6A8',    border: '#9C7E0F' },
   Unread:     { icon: 'mail-open',      bg: '#DDD2BD',     border: '#8B7A5E' },
+  Finished:   { icon: 'moon',           bg: '#D9D1D9',     border: '#6E6577', faded: true },
   Lost:       { icon: 'x-circle',       bg: '#D6CCBD',     border: '#7A6E5E', faded: true },
   Closed:     { icon: 'check-circle',   bg: '#B5DBB5',     border: '#296629' },
 };
@@ -313,6 +314,12 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <polyline points="12 6 12 12 16 14" />
         </svg>
       );
+    case 'moon':
+      return (
+        <svg {...common}>
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -420,6 +427,12 @@ const AUTO_EMAIL_STAGES = new Set([
 // that need the next-in-sequence email.
 const DEFAULT_DUE_STAGES = ['Email 1', 'Email 2', 'Email 3'];
 const DUE_AGE_DAYS = 3;
+
+// Auto-transition: when an Email 5 row has gone this many days without a
+// new contact, we flip it to 'Finished' (silent dormancy — we sent the
+// full sequence, no reply, moving on without marking it Lost).
+const FINISHED_AFTER_DAYS = 7;
+const FINISHED_FROM_STAGE = 'Email 5';
 
 function isDueProspect(p) {
   if (!p) return false;
@@ -776,6 +789,10 @@ export default function ProspectsApp({ stages, ratings }) {
     loadAll();
   }, [loadAll]);
 
+  // The auto-mark-Finished effect lives further down, after `updateProspect`
+  // is defined (it can't reference updateProspect before declaration).
+  const autoFinishedRef = useRef(false);
+
   // ─── Client-side filter + sort projection ──────────────────────────────
   // Pure derivation from (allProspects, filter sets, search, sort). No
   // async, no network, no race conditions. Toggling a checkbox re-renders
@@ -968,6 +985,32 @@ export default function ProspectsApp({ stages, ratings }) {
 
   // Expose the canonical write path to window.bloomtrack via the bridge ref.
   updateProspectByIdRef.current = updateProspect;
+
+  // Auto-mark Finished: once the canonical store hydrates on first load,
+  // sweep for Email 5 rows whose last_contact_date is FINISHED_AFTER_DAYS+
+  // old and flip them to 'Finished'. Runs at most once per page load
+  // (guarded by autoFinishedRef) so it doesn't re-fire on later state
+  // changes. Idempotent — once a row is 'Finished' it won't re-match.
+  useEffect(() => {
+    if (!storeReady || autoFinishedRef.current) return;
+    autoFinishedRef.current = true;
+    const candidates = allProspectsRef.current.filter((p) => {
+      if (p.stage !== FINISHED_FROM_STAGE) return false;
+      const d = daysBetween(p.last_contact_date);
+      return d != null && d >= FINISHED_AFTER_DAYS;
+    });
+    if (candidates.length === 0) return;
+    Promise.all(
+      candidates.map((p) =>
+        updateProspect(p.id, { stage: 'Finished' }).catch(() => null)
+      )
+    ).then(() => {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[bloomtrack] auto-marked ${candidates.length} ${FINISHED_FROM_STAGE} → Finished (${FINISHED_AFTER_DAYS}+ days)`
+      );
+    });
+  }, [storeReady, updateProspect]);
 
   function toggleRead(p) {
     const next = p.is_read ? 0 : 1;
