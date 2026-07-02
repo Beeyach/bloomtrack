@@ -1,9 +1,9 @@
 'use client';
 
 import { forwardRef, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 const COLUMNS = [
-  { key: 'is_read',           label: 'Read' },
   { key: 'name',              label: 'Name' },
   { key: 'business_name',     label: 'Business' },
   { key: 'email',             label: 'Email' },
@@ -19,7 +19,6 @@ const COLUMNS = [
 // Default column widths (px). User-resized values are merged from localStorage.
 const COL_DEFAULTS = {
   __select: 40,
-  is_read: 44,
   name: 160,
   business_name: 180,
   email: 220,
@@ -37,7 +36,6 @@ const COL_WIDTHS_KEY = 'bloomtrack:colWidths:v1';
 
 // Sentinel for "no rating" in the rating filter checklist.
 const NO_RATING = '__none__';
-const READ_OPTIONS = ['unread', 'read'];
 const FILTERS_KEY = 'bloomtrack:filters:v1';
 
 // Stage metadata. Each entry pairs a Lucide-style icon name (see Icon
@@ -54,7 +52,6 @@ const STAGE_META = {
   'Email 3':  { icon: 'send',           bg: '#E8C99D',     border: '#8B6638' },
   'Email 4':  { icon: 'send',           bg: '#DFBA85',     border: '#7C572A' },
   'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
-  Recycled:   { icon: 'recycle',        bg: '#F2D2B3',     border: '#B8723E' },
   Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
   Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
   Interested: { icon: 'heart',          bg: '#B6DCAB',     border: '#3D8030' },
@@ -63,10 +60,9 @@ const STAGE_META = {
   Booked:     { icon: 'calendar-check', bg: '#A4D7A4',     border: '#1F7A1F' },
   Client:           { icon: 'briefcase', bg: '#9DCC9D',    border: '#1A6B1A' },
   'Payment Awaiting': { icon: 'clock',   bg: '#FBE6A8',    border: '#9C7E0F' },
-  Unread:     { icon: 'mail-open',      bg: '#DDD2BD',     border: '#8B7A5E' },
   Finished:   { icon: 'moon',           bg: '#D9D1D9',     border: '#6E6577', faded: true },
+  Rejected:   { icon: 'ban',            bg: '#EED0CC',     border: '#A34A38', faded: true },
   Lost:       { icon: 'x-circle',       bg: '#D6CCBD',     border: '#7A6E5E', faded: true },
-  Closed:     { icon: 'check-circle',   bg: '#B5DBB5',     border: '#296629' },
 };
 
 // Rating metadata. Stored value in DB is still the emoji string (we don't
@@ -320,6 +316,13 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       );
+    case 'ban':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="m4.93 4.93 14.14 14.14" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -337,22 +340,58 @@ function StageIcon({ stage, className = 'w-3.5 h-3.5' }) {
 // <select> we had before — same data, much nicer affordance.
 function StagePicker({ value, stages, onChange }) {
   const [open, setOpen] = useState(false);
+  // Fixed-position coords for the popover, computed from the button rect
+  // when opened. Rendered through a portal so the table's overflow-x-auto
+  // container can't clip it, and flipped above the button when there isn't
+  // enough room below (the bug: bottom rows opened downward off-screen).
+  const [pos, setPos] = useState(null);
   const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
   const meta = STAGE_META[value] || STAGE_META.New;
+
+  const MENU_WIDTH = 208; // w-52
+  const MENU_MAX_HEIGHT = Math.round(
+    typeof window !== 'undefined' ? window.innerHeight * 0.5 : 400
+  );
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < Math.min(MENU_MAX_HEIGHT, 320) && rect.top > spaceBelow;
+    const left = Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8);
+    setPos(
+      openUp
+        ? { left, bottom: window.innerHeight - rect.top + 6, maxHeight: rect.top - 16 }
+        : { left, top: rect.bottom + 6, maxHeight: spaceBelow - 16 }
+    );
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+      if (wrapRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
     }
     function onKey(e) {
       if (e.key === 'Escape') setOpen(false);
     }
+    // Close on scroll of anything (fixed-position menu would drift away
+    // from its button otherwise).
+    function onScroll() {
+      setOpen(false);
+    }
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
     return () => {
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
     };
   }, [open]);
 
@@ -364,8 +403,9 @@ function StagePicker({ value, stages, onChange }) {
   return (
     <div ref={wrapRef} className="relative inline-block">
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         className="bw-chip"
         style={{
           backgroundColor: meta.bg === 'transparent' ? '#FBF7F0' : meta.bg,
@@ -380,36 +420,47 @@ function StagePicker({ value, stages, onChange }) {
         <span className="truncate max-w-[110px]">{value}</span>
         <Icon name="chevron-down" className="w-3 h-3 opacity-60" />
       </button>
-      {open && (
-        <div className="absolute z-30 mt-1.5 left-0 w-52 bg-surface border border-line rounded-xl shadow-card p-1.5 max-h-[60vh] overflow-y-auto bw-scroll">
-          {stages.map((s) => {
-            const m = STAGE_META[s] || {};
-            const isCurrent = s === value;
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => pick(s)}
-                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-sm transition ${
-                  isCurrent ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
-                }`}
-              >
-                <span
-                  className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border"
-                  style={{
-                    backgroundColor: m.bg === 'transparent' ? '#FBF7F0' : m.bg,
-                    borderColor: m.border,
-                    color: m.border,
-                  }}
+      {open && pos && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="fixed z-50 w-52 bg-surface border border-line rounded-xl shadow-card p-1.5 overflow-y-auto bw-scroll"
+            style={{
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+              maxHeight: Math.max(160, Math.min(pos.maxHeight, MENU_MAX_HEIGHT)),
+            }}
+          >
+            {stages.map((s) => {
+              const m = STAGE_META[s] || {};
+              const isCurrent = s === value;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => pick(s)}
+                  className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-sm transition ${
+                    isCurrent ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
+                  }`}
                 >
-                  <StageIcon stage={s} className="w-3.5 h-3.5" />
-                </span>
-                <span style={{ color: m.faded ? 'var(--muted)' : 'var(--charcoal)' }}>{s}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                  <span
+                    className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: m.bg === 'transparent' ? '#FBF7F0' : m.bg,
+                      borderColor: m.border,
+                      color: m.border,
+                    }}
+                  >
+                    <StageIcon stage={s} className="w-3.5 h-3.5" />
+                  </span>
+                  <span style={{ color: m.faded ? 'var(--muted)' : 'var(--charcoal)' }}>{s}</span>
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -417,29 +468,34 @@ function StagePicker({ value, stages, onChange }) {
 // Stages that imply an email just went out — bumps emails_sent + last_contact_date.
 const AUTO_EMAIL_STAGES = new Set([
   'Email 1', 'Email 2', 'Email 3', 'Email 4', 'Email 5',
-  'Recycled', 'Rekindled',
+  'Rekindled',
 ]);
 
-// The canonical "Due" definition: stage ∈ {Email 1, Email 2, Email 3} AND
-// days_ago ≥ 3. Anything in Email 4–7 is in the same active-outreach bucket
-// but has already been nudged at least once and isn't "due for the next
-// touch" — we keep that distinction so the daily sweep only resurfaces rows
-// that need the next-in-sequence email.
-const DEFAULT_DUE_STAGES = ['Email 1', 'Email 2', 'Email 3'];
-const DUE_AGE_DAYS = 3;
+// Per-stage "due" cadence — how many days of silence before the row
+// should surface as "time to send the next email". Email 5 is NOT here:
+// after 7 days on Email 5 we auto-transition to 'Finished' instead of
+// resurfacing as due (see FINISHED_AFTER_DAYS below).
+const DUE_DAYS_BY_STAGE = {
+  'Email 1': 3, // → send Email 2 after 3 days of silence
+  'Email 2': 5, // → send Email 3 after 5 days
+  'Email 3': 7, // → send Email 4 after 7 days
+  'Email 4': 7, // → send Email 5 after 7 days
+};
+const DEFAULT_DUE_STAGES = Object.keys(DUE_DAYS_BY_STAGE);
 
-// Auto-transition: when an Email 5 row has gone this many days without a
-// new contact, we flip it to 'Finished' (silent dormancy — we sent the
-// full sequence, no reply, moving on without marking it Lost).
-const FINISHED_AFTER_DAYS = 7;
+// Auto-transition: when an Email 5 row has been silent this long we flip
+// it to 'Finished' the next tick — user said "7 days on Email 5 → change
+// to Finished the next day", so threshold is 8.
+const FINISHED_AFTER_DAYS = 8;
 const FINISHED_FROM_STAGE = 'Email 5';
 
 function isDueProspect(p) {
   if (!p) return false;
-  if (!DEFAULT_DUE_STAGES.includes(p.stage)) return false;
+  const threshold = DUE_DAYS_BY_STAGE[p.stage];
+  if (threshold == null) return false;
   const d = daysBetween(p.last_contact_date);
   if (d == null) return false;
-  return d >= DUE_AGE_DAYS;
+  return d >= threshold;
 }
 
 // Serializable shape returned by window.bloomtrack.getProspects(). Aliases
@@ -460,7 +516,6 @@ function enrichProspect(p) {
     days_ago: daysBetween(p.last_contact_date),
     last_contact_date: p.last_contact_date ?? null,
     claude_chat_link: p.claude_chat_link ?? null,
-    is_read: p.is_read ? 1 : 0,
     gmail_labels: p.gmail_labels ?? null,
     due: isDueProspect(p),
   };
@@ -482,7 +537,6 @@ function enrichProspect(p) {
  *   setStage(email, stage)     → Promise<Prospect> (auto-stamps last_contact_date + bumps emails_sent on AUTO_EMAIL_STAGES)
  *   markReplied(email)         → Promise<Prospect> (sets stage='Replied', does NOT stamp last_contact_date or bump emails_sent)
  *   setRating(email, rating)   → Promise<Prospect>
- *   markRead/markUnread        → Promise<Prospect>
  *   setLastContact(email, iso) → Promise<Prospect>
  *   setChatLink(email, url)    → Promise<Prospect>
  *   refresh()                  → Promise<void>    (re-pulls the canonical store from the server)
@@ -527,13 +581,21 @@ function makeBloomtrackApi({
     getProspects() {
       return getAllProspects().map(enrichProspect);
     },
-    getDue({ days = DUE_AGE_DAYS, stages: stagesArg = DEFAULT_DUE_STAGES } = {}) {
-      const stageSet = new Set(stagesArg);
+    // Default behavior: uses per-stage thresholds (Email 1→3d, 2→5d,
+    // 3→7d, 4→7d). Callers can override with a flat `days` and a custom
+    // `stages` list to force uniform behavior (e.g. sweep every stage
+    // touched in the last N days).
+    getDue({ days, stages: stagesArg } = {}) {
+      if (days == null && stagesArg == null) {
+        return getAllProspects().filter(isDueProspect).map(enrichProspect);
+      }
+      const stageSet = new Set(stagesArg || DEFAULT_DUE_STAGES);
+      const threshold = days ?? 3;
       return getAllProspects()
         .filter((p) => stageSet.has(p.stage))
         .filter((p) => {
           const d = daysBetween(p.last_contact_date);
-          return d != null && d >= days;
+          return d != null && d >= threshold;
         })
         .map(enrichProspect);
     },
@@ -571,12 +633,6 @@ function makeBloomtrackApi({
       }
       return patchByEmail(email, { rating });
     },
-    markRead(email) {
-      return patchByEmail(email, { is_read: 1 });
-    },
-    markUnread(email) {
-      return patchByEmail(email, { is_read: 0 });
-    },
     setLastContact(email, iso) {
       return patchByEmail(email, { last_contact_date: iso || null });
     },
@@ -592,7 +648,8 @@ function makeBloomtrackApi({
     ratings: [...ratings],
     AUTO_EMAIL_STAGES: [...autoEmailStages],
     DEFAULT_DUE_STAGES: [...DEFAULT_DUE_STAGES],
-    DUE_AGE_DAYS,
+    DUE_DAYS_BY_STAGE: { ...DUE_DAYS_BY_STAGE },
+    FINISHED_AFTER_DAYS,
   };
 }
 
@@ -611,7 +668,6 @@ export default function ProspectsApp({ stages, ratings }) {
   const allStageOpts = useMemo(() => [...stages], [stages]);
   const [ratingChecked, setRatingChecked] = useState(() => new Set(allRatingOpts));
   const [stageChecked, setStageChecked] = useState(() => new Set(allStageOpts));
-  const [readChecked, setReadChecked] = useState(() => new Set(READ_OPTIONS));
   const [dueOnly, setDueOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
@@ -673,10 +729,8 @@ export default function ProspectsApp({ stages, ratings }) {
             const valid = new Set(allStageOpts);
             setStageChecked(new Set(stored.stage.filter((v) => valid.has(v))));
           }
-          if (Array.isArray(stored.read)) {
-            const valid = new Set(READ_OPTIONS);
-            setReadChecked(new Set(stored.read.filter((v) => valid.has(v))));
-          }
+          // Older versions of this app persisted a `read` array; it's silently
+          // ignored now that the Read column has been removed.
         }
       }
     } catch {}
@@ -693,11 +747,10 @@ export default function ProspectsApp({ stages, ratings }) {
         JSON.stringify({
           rating: [...ratingChecked],
           stage: [...stageChecked],
-          read: [...readChecked],
         })
       );
     } catch {}
-  }, [ratingChecked, stageChecked, readChecked]);
+  }, [ratingChecked, stageChecked]);
 
   // Close the filter panel on click-outside / Escape.
   useEffect(() => {
@@ -760,13 +813,6 @@ export default function ProspectsApp({ stages, ratings }) {
       if (stageChecked.size === 0) url.searchParams.append('stage', '__nomatch__');
       else stageChecked.forEach((s) => url.searchParams.append('stage', s));
     }
-    if (readChecked.size < READ_OPTIONS.length) {
-      if (readChecked.size === 0) {
-        url.searchParams.append('read', '__nomatch__');
-      } else {
-        readChecked.forEach((r) => url.searchParams.append('read', r));
-      }
-    }
   }
 
   // Monotonic request token. When the user triggers loadAll repeatedly
@@ -802,7 +848,6 @@ export default function ProspectsApp({ stages, ratings }) {
     const q = search.trim().toLowerCase();
     const ratingAll = ratingChecked.size === allRatingOpts.length;
     const stageAll = stageChecked.size === allStageOpts.length;
-    const readAll = readChecked.size === READ_OPTIONS.length;
 
     let rows = allProspects.filter((p) => {
       if (q) {
@@ -817,10 +862,6 @@ export default function ProspectsApp({ stages, ratings }) {
       }
       if (!stageAll) {
         if (!stageChecked.has(p.stage || 'New')) return false;
-      }
-      if (!readAll) {
-        const k = p.is_read ? 'read' : 'unread';
-        if (!readChecked.has(k)) return false;
       }
       if (dueOnly && !isDueProspect(p)) return false;
       return true;
@@ -867,7 +908,7 @@ export default function ProspectsApp({ stages, ratings }) {
     if (sort.key === 'default') sorted.sort(defaultCmp);
     else sorted.sort(fieldCmp(sort.key));
     return sorted;
-  }, [allProspects, search, ratingChecked, stageChecked, readChecked, dueOnly, sort, allRatingOpts.length, allStageOpts.length]);
+  }, [allProspects, search, ratingChecked, stageChecked, dueOnly, sort, allRatingOpts.length, allStageOpts.length]);
 
   const dueCount = useMemo(
     () => allProspects.reduce((n, p) => n + (isDueProspect(p) ? 1 : 0), 0),
@@ -911,7 +952,6 @@ export default function ProspectsApp({ stages, ratings }) {
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +
     (allStageOpts.length - stageChecked.size) +
-    (READ_OPTIONS.length - readChecked.size) +
     (dueOnly ? 1 : 0);
   const hasActiveFilter = search.length > 0 || hiddenCount > 0;
   const totalCount = allProspects.length;
@@ -928,12 +968,10 @@ export default function ProspectsApp({ stages, ratings }) {
   function selectAllFilters() {
     setRatingChecked(new Set(allRatingOpts));
     setStageChecked(new Set(allStageOpts));
-    setReadChecked(new Set(READ_OPTIONS));
   }
   function clearAllFilters() {
     setRatingChecked(new Set());
     setStageChecked(new Set());
-    setReadChecked(new Set());
   }
   function toggleSort(key) {
     setSort((prev) => {
@@ -1012,11 +1050,6 @@ export default function ProspectsApp({ stages, ratings }) {
     });
   }, [storeReady, updateProspect]);
 
-  function toggleRead(p) {
-    const next = p.is_read ? 0 : 1;
-    updateProspect(p.id, { is_read: next });
-  }
-
   async function handleStageChange(p, newStage) {
     const patch = { stage: newStage };
     if (AUTO_EMAIL_STAGES.has(newStage)) {
@@ -1040,7 +1073,6 @@ export default function ProspectsApp({ stages, ratings }) {
         domain,
         rating: null,
         stage: 'New',
-        is_read: 0,
       }),
     });
     if (res.ok) {
@@ -1098,14 +1130,6 @@ export default function ProspectsApp({ stages, ratings }) {
         }
         return updateProspect(id, patch).catch(() => null);
       })
-    );
-  }
-
-  async function bulkSetRead(value) {
-    if (selected.size === 0) return;
-    const ids = [...selected];
-    await Promise.all(
-      ids.map((id) => updateProspect(id, { is_read: value ? 1 : 0 }).catch(() => null))
     );
   }
 
@@ -1228,10 +1252,8 @@ export default function ProspectsApp({ stages, ratings }) {
                 stages={stages}
                 ratingChecked={ratingChecked}
                 stageChecked={stageChecked}
-                readChecked={readChecked}
                 toggleRating={(r) => toggleInSet(setRatingChecked, r)}
                 toggleStage={(s) => toggleInSet(setStageChecked, s)}
-                toggleRead={(r) => toggleInSet(setReadChecked, r)}
                 onSelectAll={selectAllFilters}
                 onClearAll={clearAllFilters}
                 onDone={() => setFiltersOpen(false)}
@@ -1251,7 +1273,7 @@ export default function ProspectsApp({ stages, ratings }) {
                 ? 'bg-mauve-deep text-white'
                 : 'text-charcoal-2 hover:bg-blush-soft'
             }`}
-            title={dueOnly ? 'Showing only due prospects — click to clear' : `Show only prospects due for next email (stage Email 1-3, ${DUE_AGE_DAYS}+ days)`}
+            title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for next email (Email 1→3d, Email 2→5d, Email 3-4→7d)'}
           >
             <Icon name="bell" className="w-3.5 h-3.5" />
             <span>Due</span>
@@ -1402,9 +1424,7 @@ export default function ProspectsApp({ stages, ratings }) {
                     <th
                       key={c.key}
                       onClick={() => toggleSort(c.key)}
-                      className={`relative py-3 text-left font-mono text-[10px] uppercase tracking-[0.16em] text-muted hover:text-charcoal cursor-pointer select-none whitespace-nowrap overflow-hidden transition ${
-                        c.key === 'is_read' ? 'px-1 text-center' : 'px-3'
-                      }`}
+                      className="relative py-3 px-3 text-left font-mono text-[10px] uppercase tracking-[0.16em] text-muted hover:text-charcoal cursor-pointer select-none whitespace-nowrap overflow-hidden transition"
                     >
                       {c.label}
                       {sort.key === c.key && (
@@ -1462,22 +1482,6 @@ export default function ProspectsApp({ stages, ratings }) {
                           checked={selected.has(p.id)}
                           onChange={() => toggleSelect(p.id)}
                         />
-                      </td>
-                      <td className="px-1 py-1 align-top text-center w-8">
-                        <button
-                          onClick={() => toggleRead(p)}
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition ${
-                            p.is_read
-                              ? 'text-mauve-deep hover:bg-blush-soft'
-                              : 'text-muted hover:text-charcoal hover:bg-blush-soft'
-                          }`}
-                          title={p.is_read ? 'Read — click to mark unread' : 'Unread — click to mark read'}
-                        >
-                          <Icon
-                            name={p.is_read ? 'check-circle' : 'mail'}
-                            className="w-4 h-4"
-                          />
-                        </button>
                       </td>
                       <EditableCell
                         value={p.name}
@@ -1587,22 +1591,6 @@ export default function ProspectsApp({ stages, ratings }) {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => bulkSetRead(1)}
-            className="inline-flex items-center gap-1.5 text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
-            title="Mark selected as read"
-          >
-            <Icon name="check-circle" className="w-3.5 h-3.5" />
-            Read
-          </button>
-          <button
-            onClick={() => bulkSetRead(0)}
-            className="inline-flex items-center gap-1.5 text-paper/90 hover:text-paper border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
-            title="Mark selected as unread"
-          >
-            <Icon name="mail" className="w-3.5 h-3.5" />
-            Unread
-          </button>
           <span className="w-px h-4 bg-paper/20" />
           <button
             onClick={bulkDelete}
@@ -1665,10 +1653,8 @@ const FilterPanel = forwardRef(function FilterPanel(
     stages,
     ratingChecked,
     stageChecked,
-    readChecked,
     toggleRating,
     toggleStage,
-    toggleRead,
     onSelectAll,
     onClearAll,
     onDone,
@@ -1740,33 +1726,6 @@ const FilterPanel = forwardRef(function FilterPanel(
             />
           );
         })}
-      </FilterSection>
-
-      <FilterSection label="Read Status">
-        <FilterRow
-          checked={readChecked.has('unread')}
-          onChange={() => toggleRead('unread')}
-          label={
-            <span className="flex items-center gap-2 text-sm text-charcoal">
-              <span className="w-5 h-5 rounded-full bg-blush-soft text-muted flex items-center justify-center shrink-0">
-                <Icon name="mail" className="w-3 h-3" />
-              </span>
-              Unread
-            </span>
-          }
-        />
-        <FilterRow
-          checked={readChecked.has('read')}
-          onChange={() => toggleRead('read')}
-          label={
-            <span className="flex items-center gap-2 text-sm text-charcoal">
-              <span className="w-5 h-5 rounded-full bg-blush-soft text-mauve-deep flex items-center justify-center shrink-0">
-                <Icon name="check-circle" className="w-3 h-3" />
-              </span>
-              Read
-            </span>
-          }
-        />
       </FilterSection>
 
       <div className="mt-4 pt-3 border-t border-line/70 flex items-center justify-between">
@@ -2017,7 +1976,7 @@ function DaysAgoCell({ value, due }) {
         {due && (
           <span
             className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-mauve-deep text-white"
-            title="Due for next email (Email 1-3, 3+ days)"
+            title="Due for next email"
           >
             <Icon name="bell" className="w-2.5 h-2.5" />
           </span>
