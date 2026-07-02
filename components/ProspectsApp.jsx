@@ -378,20 +378,26 @@ function StagePicker({ value, stages, onChange }) {
     function onKey(e) {
       if (e.key === 'Escape') setOpen(false);
     }
-    // Close on scroll of anything (fixed-position menu would drift away
-    // from its button otherwise).
-    function onScroll() {
+    // Close when the PAGE/table scrolls (the fixed-position menu would
+    // drift away from its button). But ignore scrolls that happen INSIDE
+    // the menu's own list — otherwise scrolling a long stage list snaps
+    // it shut. This was the "minimizes by itself, can't scroll" bug.
+    function onScroll(e) {
+      if (popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onResize() {
       setOpen(false);
     }
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onScroll);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('resize', onResize);
     };
   }, [open]);
 
