@@ -1,6 +1,8 @@
 import { getDb } from '@/lib/db';
 
 export const runtime = 'edge';
+// Match the other routes: keep this a dynamic Function, never a static asset.
+export const dynamic = 'force-dynamic';
 
 function csvEscape(v) {
   if (v == null) return '';

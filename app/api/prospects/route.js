@@ -3,6 +3,11 @@ import { getDb, STAGES, RATINGS } from '@/lib/db';
 
 // D1 is only available in the edge runtime on Cloudflare Pages.
 export const runtime = 'edge';
+// Force-dynamic so next-on-pages keeps this a real Function for ALL methods.
+// Without it the route can be prerendered as a static asset — GET then works
+// but POST/PUT/DELETE hit the static bucket and return a bare 405. That was
+// the "can't add / edits don't save" bug on the deployed site.
+export const dynamic = 'force-dynamic';
 
 const SELECT_COLS =
   'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at';

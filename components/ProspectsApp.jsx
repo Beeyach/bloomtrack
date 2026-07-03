@@ -1088,6 +1088,12 @@ export default function ProspectsApp({ stages, ratings }) {
       setAllProspects((prev) => [data.prospect, ...prev]);
       setHighlightId(data.prospect.id);
       setTimeout(() => setHighlightId(null), 1800);
+    } else {
+      // Don't fail silently — surface the server error so a broken write
+      // path (e.g. a 405 from a bad deploy) is obvious instead of looking
+      // like the button did nothing.
+      const detail = await res.text().catch(() => '');
+      alert(`Couldn't add prospect (HTTP ${res.status}). ${detail}`.trim());
     }
   }
 

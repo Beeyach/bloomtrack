@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { getDb, STAGES, RATINGS } from '@/lib/db';
 
 export const runtime = 'edge';
+// Force-dynamic so PUT/DELETE survive the next-on-pages build as a real
+// Function instead of being prerendered static (which 405s non-GET methods).
+export const dynamic = 'force-dynamic';
 
 const ALLOWED_FIELDS = [
   'name',
