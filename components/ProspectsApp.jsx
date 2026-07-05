@@ -77,6 +77,7 @@ const STAGE_META = {
   Potential:  { icon: 'trending-up',    bg: '#FBCEA3',     border: '#B86A2A' },
   Nudge:      { icon: 'bell',           bg: '#F2DF92',     border: '#9C8425' },
   Snoozed:    { icon: 'hourglass',      bg: '#DCE0F0',     border: '#6B76A8' },
+  'Re-warm':  { icon: 'rotate-ccw',     bg: '#FBE0D2',     border: '#C77A52' },
   Booked:     { icon: 'calendar-check', bg: '#A4D7A4',     border: '#1F7A1F' },
   Client:           { icon: 'briefcase', bg: '#9DCC9D',    border: '#1A6B1A' },
   'Payment Awaiting': { icon: 'clock',   bg: '#FBE6A8',    border: '#9C7E0F' },
@@ -347,6 +348,13 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
       return (
         <svg {...common}>
           <path d="M5 22h14M5 2h14M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+        </svg>
+      );
+    case 'rotate-ccw':
+      return (
+        <svg {...common}>
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
         </svg>
       );
     case 'instagram':
@@ -658,9 +666,10 @@ const AUTO_EMAIL_STAGES = new Set([
 ]);
 
 // Stages that (re)anchor the last_contact_date to today WITHOUT bumping
-// emails_sent. Snoozing isn't an email — but we stamp today so the
-// come-back countdown starts from when you snoozed, not from an old date.
-const STAMP_ONLY_STAGES = new Set(['Snoozed']);
+// emails_sent. Snoozing / re-warming isn't an email — but we stamp today
+// so the come-back countdown starts from when you parked it, not from an
+// old date.
+const STAMP_ONLY_STAGES = new Set(['Snoozed', 'Re-warm']);
 
 // Per-stage "due" cadence — how many days of silence before the row
 // should surface as "time to send the next email". Email 5 is NOT here:
@@ -672,6 +681,7 @@ const DUE_DAYS_BY_STAGE = {
   'Email 3': 7,  // → send Email 4 after 7 days
   'Email 4': 7,  // → send Email 5 after 7 days
   'Snoozed': 30, // → "come back later" leads resurface ~1 month after snoozing
+  'Re-warm': 60, // → interested-then-quiet leads resurface ~2 months later
 };
 const DEFAULT_DUE_STAGES = Object.keys(DUE_DAYS_BY_STAGE);
 
@@ -1514,7 +1524,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                 ? 'bg-mauve-deep text-white'
                 : 'text-charcoal-2 hover:bg-blush-soft'
             }`}
-            title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (Email 1→3d, Email 2→5d, Email 3-4→7d, Snoozed→30d)'}
+            title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (Email 1→3d, Email 2→5d, Email 3-4→7d, Snoozed→30d, Re-warm→60d)'}
           >
             <Icon name="bell" className="w-3.5 h-3.5" />
             <span>Due</span>
