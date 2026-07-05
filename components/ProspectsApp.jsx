@@ -1593,7 +1593,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
               </select>
               <input
                 type="text"
-                placeholder="Claude chat link"
+                placeholder="Chat link"
                 value={quickAdd.claude_chat_link}
                 onChange={(e) => setQuickAdd({ ...quickAdd, claude_chat_link: e.target.value })}
                 className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
@@ -2399,7 +2399,7 @@ function ChatCell({ value, onSave }) {
           else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
         }}
         className="cell-input text-sm"
-        placeholder="Paste Claude chat URL"
+        placeholder="Paste chat URL"
       />
     );
   }
@@ -2409,7 +2409,7 @@ function ChatCell({ value, onSave }) {
       <span
         className="cell-display text-sm text-muted/60 cursor-pointer"
         onClick={() => setEditing(true)}
-        title="Click to add Claude chat URL"
+        title="Click to add chat URL"
       >
         —
       </span>
