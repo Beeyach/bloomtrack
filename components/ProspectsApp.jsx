@@ -69,6 +69,7 @@ const STAGE_META = {
   'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
   Instagram:      { icon: 'instagram',  bg: '#F3D9EC',     border: '#B84A8E' },
   Facebook:       { icon: 'facebook',   bg: '#D3E0F5',     border: '#3B5998' },
+  LinkedIn:       { icon: 'linkedin',   bg: '#CFE0EE',     border: '#0A66C2' },
   'Contact Form': { icon: 'clipboard',  bg: '#D3EAE6',     border: '#3B8C7E' },
   Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
   Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
@@ -360,6 +361,14 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
       return (
         <svg {...common}>
           <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+        </svg>
+      );
+    case 'linkedin':
+      return (
+        <svg {...common}>
+          <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+          <rect width="4" height="12" x="2" y="9" />
+          <circle cx="4" cy="4" r="2" />
         </svg>
       );
     case 'clipboard':
