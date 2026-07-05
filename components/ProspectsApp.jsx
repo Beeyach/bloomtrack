@@ -1320,6 +1320,14 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
     );
   }
 
+  async function bulkCountry(newCountry) {
+    if (selected.size === 0) return;
+    const ids = [...selected];
+    await Promise.all(
+      ids.map((id) => updateProspect(id, { country: newCountry }).catch(() => null))
+    );
+  }
+
   function onFilePick(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1774,6 +1782,24 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
             {stages.map((s) => (
               <option key={s} value={s}>
                 {stageLabel(s)}
+              </option>
+            ))}
+          </select>
+          <select
+            onChange={(e) => {
+              if (e.target.value) {
+                bulkCountry(e.target.value === '__clear' ? null : e.target.value);
+                e.target.value = '';
+              }
+            }}
+            className="bg-transparent border border-paper/25 rounded-full px-3 py-1 text-xs hover:bg-paper/10 transition"
+            defaultValue=""
+          >
+            <option value="" disabled>Change country…</option>
+            <option value="__clear">— clear —</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {(COUNTRY_META[c]?.flag || '')} {c}
               </option>
             ))}
           </select>
