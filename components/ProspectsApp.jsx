@@ -23,11 +23,11 @@ const COLUMNS = [
 // time sends (e.g. AU during their local midnight). US/CA span multiple
 // zones — these are business-hours representatives, not exact.
 const COUNTRY_META = {
-  US: { flag: '🇺🇸', label: 'United States', tz: 'America/New_York' },
-  CA: { flag: '🇨🇦', label: 'Canada',        tz: 'America/Toronto' },
-  AU: { flag: '🇦🇺', label: 'Australia',     tz: 'Australia/Sydney' },
-  NZ: { flag: '🇳🇿', label: 'New Zealand',   tz: 'Pacific/Auckland' },
-  UK: { flag: '🇬🇧', label: 'United Kingdom', tz: 'Europe/London' },
+  US: { label: 'United States',  tz: 'America/New_York' },
+  CA: { label: 'Canada',         tz: 'America/Toronto' },
+  AU: { label: 'Australia',      tz: 'Australia/Sydney' },
+  NZ: { label: 'New Zealand',    tz: 'Pacific/Auckland' },
+  UK: { label: 'United Kingdom', tz: 'Europe/London' },
 };
 
 // Default column widths (px). User-resized values are merged from localStorage.
@@ -566,10 +566,7 @@ function CountryPicker({ value, options, onChange }) {
         title={meta ? `${meta.label} · ${meta.tz}` : 'Set country'}
       >
         {meta ? (
-          <>
-            <span className="text-base leading-none">{meta.flag}</span>
-            <span className="text-[11px] font-mono text-muted">{value}</span>
-          </>
+          <span className="text-xs font-mono font-semibold text-charcoal">{value}</span>
         ) : (
           <span className="text-xs text-muted/60">—</span>
         )}
@@ -609,9 +606,8 @@ function CountryPicker({ value, options, onChange }) {
                     isCurrent ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
                   }`}
                 >
-                  <span className="text-base leading-none w-5 text-center">{m.flag}</span>
-                  <span className="font-mono text-xs text-muted w-6">{c}</span>
-                  <span className="truncate">{m.label}</span>
+                  <span className="font-mono text-xs font-semibold text-charcoal w-7">{c}</span>
+                  <span className="truncate text-muted">{m.label}</span>
                 </button>
               );
             })}
@@ -1818,9 +1814,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
             <option value="" disabled>Change country…</option>
             <option value="__clear">— clear —</option>
             {countries.map((c) => (
-              <option key={c} value={c}>
-                {(COUNTRY_META[c]?.flag || '')} {c}
-              </option>
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
           <span className="w-px h-4 bg-paper/20" />
