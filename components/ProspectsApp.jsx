@@ -67,6 +67,9 @@ const STAGE_META = {
   'Email 3':  { icon: 'send',           bg: '#E8C99D',     border: '#8B6638' },
   'Email 4':  { icon: 'send',           bg: '#DFBA85',     border: '#7C572A' },
   'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
+  Instagram:      { icon: 'instagram',  bg: '#F3D9EC',     border: '#B84A8E' },
+  Facebook:       { icon: 'facebook',   bg: '#D3E0F5',     border: '#3B5998' },
+  'Contact Form': { icon: 'clipboard',  bg: '#D3EAE6',     border: '#3B8C7E' },
   Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
   Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
   Interested: { icon: 'heart',          bg: '#B6DCAB',     border: '#3D8030' },
@@ -343,6 +346,27 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
       return (
         <svg {...common}>
           <path d="M5 22h14M5 2h14M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+        </svg>
+      );
+    case 'instagram':
+      return (
+        <svg {...common}>
+          <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+          <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+        </svg>
+      );
+    case 'facebook':
+      return (
+        <svg {...common}>
+          <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+        </svg>
+      );
+    case 'clipboard':
+      return (
+        <svg {...common}>
+          <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
         </svg>
       );
     default:
@@ -1567,8 +1591,8 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                 className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
               />
               <input
-                type="email"
-                placeholder="Email"
+                type="text"
+                placeholder="Email or @handle"
                 value={quickAdd.email}
                 onChange={(e) => setQuickAdd({ ...quickAdd, email: e.target.value })}
                 className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[200px] transition"
