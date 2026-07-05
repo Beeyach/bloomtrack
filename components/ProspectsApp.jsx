@@ -1449,8 +1449,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   return (
     <div className="min-h-screen px-6 py-10 sm:py-14 max-w-[1500px] mx-auto">
-      <WorldClockBar />
-      <header className="mb-10 flex items-end justify-between gap-6 flex-wrap">
+      <header className="mb-10 flex items-start justify-between gap-6 flex-wrap">
         <div>
           <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal">
             Bloomtrack
@@ -1459,8 +1458,11 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
             Prospecting · since today
           </p>
         </div>
-        <div className="font-mono text-xs uppercase tracking-[0.16em] text-muted">
-          {totalCount} prospect{totalCount === 1 ? '' : 's'} on file
+        <div className="flex flex-col items-end gap-2">
+          <WorldClockBar />
+          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
+            {totalCount} prospect{totalCount === 1 ? '' : 's'} on file
+          </div>
         </div>
       </header>
 
@@ -1961,31 +1963,22 @@ function WorldClockBar() {
   }, []);
 
   return (
-    <div className="mb-6 flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1">
       {WORLD_CLOCKS.map((c) => {
         const time = now
           ? now.toLocaleTimeString('en-US', {
-              timeZone: c.tz, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+              timeZone: c.tz, hour: 'numeric', minute: '2-digit', hour12: true,
             })
-          : '––:––:––';
-        const day = now
-          ? now.toLocaleDateString('en-US', { timeZone: c.tz, weekday: 'short' })
-          : '';
+          : '––:––';
         return (
-          <div
-            key={c.tz}
-            className="flex flex-col justify-center px-3 py-2 bg-surface border border-line rounded-xl shadow-card min-w-[128px]"
-          >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">
-                {c.label}
-              </span>
-              <span className="text-[10px] font-mono text-muted/70">{day}</span>
-            </div>
-            <span className="mt-0.5 text-base font-mono num-tabular text-charcoal tracking-tight">
+          <span key={c.tz} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+            <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">
+              {c.label}
+            </span>
+            <span className="text-xs font-mono num-tabular text-charcoal-2">
               {time}
             </span>
-          </div>
+          </span>
         );
       })}
     </div>
