@@ -860,7 +860,9 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const hydratedFiltersRef = useRef(false);
   const [sort, setSort] = useState({ key: 'default', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
-  const [quickAdd, setQuickAdd] = useState({ name: '', business_name: '', email: '', domain: '' });
+  const [quickAdd, setQuickAdd] = useState({
+    name: '', business_name: '', email: '', domain: '', country: '', claude_chat_link: '',
+  });
   const [highlightId, setHighlightId] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
   const [importCsvText, setImportCsvText] = useState('');
@@ -1248,7 +1250,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   async function addProspect(e) {
     e?.preventDefault?.();
-    const { name, business_name, email, domain } = quickAdd;
+    const { name, business_name, email, domain, country, claude_chat_link } = quickAdd;
     if (!name && !business_name && !email && !domain) return;
     const res = await fetch('/api/prospects', {
       method: 'POST',
@@ -1258,13 +1260,15 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         business_name,
         email,
         domain,
-        rating: null,
+        country: country || null,
+        claude_chat_link: claude_chat_link.trim() || null,
+        rating: '💚', // new prospects default to Strong
         stage: 'New',
       }),
     });
     if (res.ok) {
       const data = await res.json();
-      setQuickAdd({ name: '', business_name: '', email: '', domain: '' });
+      setQuickAdd({ name: '', business_name: '', email: '', domain: '', country: '', claude_chat_link: '' });
       // Push directly into the canonical store — no refetch needed.
       setAllProspects((prev) => [data.prospect, ...prev]);
       setHighlightId(data.prospect.id);
@@ -1402,6 +1406,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   return (
     <div className="min-h-screen px-6 py-10 sm:py-14 max-w-[1500px] mx-auto">
+      <WorldClockBar />
       <header className="mb-10 flex items-end justify-between gap-6 flex-wrap">
         <div>
           <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal">
@@ -1573,6 +1578,24 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                 placeholder="Domain"
                 value={quickAdd.domain}
                 onChange={(e) => setQuickAdd({ ...quickAdd, domain: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
+              />
+              <select
+                value={quickAdd.country}
+                onChange={(e) => setQuickAdd({ ...quickAdd, country: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white transition text-charcoal"
+                title="Country"
+              >
+                <option value="">Country</option>
+                {countries.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="Claude chat link"
+                value={quickAdd.claude_chat_link}
+                onChange={(e) => setQuickAdd({ ...quickAdd, claude_chat_link: e.target.value })}
                 className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white flex-1 min-w-[160px] transition"
               />
               <button
@@ -1867,6 +1890,61 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ----- World clock ----- */
+
+// Real-time digital clocks shown as a strip at the top. Times are derived
+// per-tick from a single Date via Intl timezone formatting — no per-clock
+// timers, just one interval.
+const WORLD_CLOCKS = [
+  { label: 'Toronto',     tz: 'America/Toronto' },
+  { label: 'LA · PST',    tz: 'America/Los_Angeles' },
+  { label: 'Florida',     tz: 'America/New_York' },
+  { label: 'Sydney',      tz: 'Australia/Sydney' },
+  { label: 'London',      tz: 'Europe/London' },
+];
+
+function WorldClockBar() {
+  // Start null so SSR and first client render match (no hydration mismatch);
+  // fill in on mount, then tick every second.
+  const [now, setNow] = useState(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="mb-6 flex flex-wrap gap-2">
+      {WORLD_CLOCKS.map((c) => {
+        const time = now
+          ? now.toLocaleTimeString('en-US', {
+              timeZone: c.tz, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+            })
+          : '––:––:––';
+        const day = now
+          ? now.toLocaleDateString('en-US', { timeZone: c.tz, weekday: 'short' })
+          : '';
+        return (
+          <div
+            key={c.tz}
+            className="flex flex-col justify-center px-3 py-2 bg-surface border border-line rounded-xl shadow-card min-w-[128px]"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">
+                {c.label}
+              </span>
+              <span className="text-[10px] font-mono text-muted/70">{day}</span>
+            </div>
+            <span className="mt-0.5 text-base font-mono num-tabular text-charcoal tracking-tight">
+              {time}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
