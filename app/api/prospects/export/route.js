@@ -56,6 +56,7 @@ export async function GET(req) {
     'last_contact_date',
     'claude_chat_link',
     'gmail_labels',
+    'country',
   ];
 
   const sql = `SELECT ${headers.join(', ')}

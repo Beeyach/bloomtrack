@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, STAGES, RATINGS } from '@/lib/db';
+import { getDb, STAGES, RATINGS, COUNTRIES } from '@/lib/db';
 
 export const runtime = 'edge';
 // Force-dynamic so PUT/DELETE survive the next-on-pages build as a real
@@ -18,10 +18,11 @@ const ALLOWED_FIELDS = [
   'claude_chat_link',
   'gmail_labels',
   'is_read',
+  'country',
 ];
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, created_at, updated_at';
 
 export async function PUT(req, { params }) {
   const { id } = await params;
@@ -39,6 +40,9 @@ export async function PUT(req, { params }) {
       }
       if (key === 'rating' && body.rating != null && body.rating !== '' && !RATINGS.includes(body.rating)) {
         return NextResponse.json({ error: 'Invalid rating' }, { status: 400 });
+      }
+      if (key === 'country' && body.country != null && body.country !== '' && !COUNTRIES.includes(body.country)) {
+        return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
       }
       updates.push(`${key} = ?`);
       if (key === 'is_read') {
