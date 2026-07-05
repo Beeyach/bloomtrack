@@ -1406,6 +1406,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   return (
     <div className="min-h-screen px-6 py-10 sm:py-14 max-w-[1500px] mx-auto">
+      <WorldClockBar />
       <header className="mb-10 flex items-end justify-between gap-6 flex-wrap">
         <div>
           <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal">
@@ -1889,6 +1890,61 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ----- World clock ----- */
+
+// Real-time digital clocks shown as a strip at the top. Times are derived
+// per-tick from a single Date via Intl timezone formatting — no per-clock
+// timers, just one interval.
+const WORLD_CLOCKS = [
+  { label: 'Toronto',     tz: 'America/Toronto' },
+  { label: 'LA · PST',    tz: 'America/Los_Angeles' },
+  { label: 'Florida',     tz: 'America/New_York' },
+  { label: 'Sydney',      tz: 'Australia/Sydney' },
+  { label: 'London',      tz: 'Europe/London' },
+];
+
+function WorldClockBar() {
+  // Start null so SSR and first client render match (no hydration mismatch);
+  // fill in on mount, then tick every second.
+  const [now, setNow] = useState(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="mb-6 flex flex-wrap gap-2">
+      {WORLD_CLOCKS.map((c) => {
+        const time = now
+          ? now.toLocaleTimeString('en-US', {
+              timeZone: c.tz, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+            })
+          : '––:––:––';
+        const day = now
+          ? now.toLocaleDateString('en-US', { timeZone: c.tz, weekday: 'short' })
+          : '';
+        return (
+          <div
+            key={c.tz}
+            className="flex flex-col justify-center px-3 py-2 bg-surface border border-line rounded-xl shadow-card min-w-[128px]"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">
+                {c.label}
+              </span>
+              <span className="text-[10px] font-mono text-muted/70">{day}</span>
+            </div>
+            <span className="mt-0.5 text-base font-mono num-tabular text-charcoal tracking-tight">
+              {time}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
