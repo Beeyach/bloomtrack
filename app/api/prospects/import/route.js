@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, STAGES, RATINGS } from '@/lib/db';
+import { getDb, STAGES, RATINGS, COUNTRIES } from '@/lib/db';
 
 export const runtime = 'edge';
 // Force-dynamic so the import POST survives as a real Function on
@@ -82,6 +82,7 @@ const ALLOWED_COLS = [
   'next_followup_date',
   'claude_chat_link',
   'gmail_labels',
+  'country',
 ];
 
 // Map legacy CSV `status` → { stage, rating(emoji) }.
@@ -207,6 +208,11 @@ export async function POST(req) {
     let stage = raw.stage || 'New';
     if (!STAGES.includes(stage)) stage = 'New';
     if (rating && !RATINGS.includes(rating)) rating = null;
+    // Normalize country: uppercase, and accept a couple of common aliases.
+    let country = raw.country ? raw.country.trim().toUpperCase() : null;
+    if (country === 'GB') country = 'UK';
+    if (country === 'CAD') country = 'CA';
+    if (country && !COUNTRIES.includes(country)) country = null;
 
     records.push({
       name: raw.name,
@@ -219,6 +225,7 @@ export async function POST(req) {
       last_contact_date: raw.last_contact_date,
       claude_chat_link: raw.claude_chat_link,
       gmail_labels,
+      country,
     });
   }
 
@@ -251,8 +258,8 @@ export async function POST(req) {
   // D1 has no equivalent of better-sqlite3's synchronous db.transaction().
   // We use db.batch() instead — it runs the prepared statements atomically
   // in a single round trip.
-  const insertSql = `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`;
+  const insertSql = `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, country, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`;
   const stmt = db.prepare(insertSql);
   const batchStmts = toInsert.map((r) =>
     stmt.bind(
@@ -265,7 +272,8 @@ export async function POST(req) {
       r.emails_sent,
       r.last_contact_date,
       r.claude_chat_link,
-      r.gmail_labels
+      r.gmail_labels,
+      r.country
     )
   );
   if (batchStmts.length > 0) {

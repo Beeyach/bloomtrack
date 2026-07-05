@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS prospects (
   claude_chat_link TEXT,
   gmail_labels TEXT,
   is_read INTEGER DEFAULT 0,
+  country TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

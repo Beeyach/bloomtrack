@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, STAGES, RATINGS } from '@/lib/db';
+import { getDb, STAGES, RATINGS, COUNTRIES } from '@/lib/db';
 
 // D1 is only available in the edge runtime on Cloudflare Pages.
 export const runtime = 'edge';
@@ -10,7 +10,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, created_at, updated_at';
 
 export async function GET(req) {
   const db = getDb();
@@ -121,6 +121,7 @@ export async function POST(req) {
     claude_chat_link = null,
     gmail_labels = null,
     is_read = 0,
+    country = null,
   } = body || {};
 
   if (stage && !STAGES.includes(stage)) {
@@ -129,11 +130,14 @@ export async function POST(req) {
   if (rating && !RATINGS.includes(rating)) {
     return NextResponse.json({ error: 'Invalid rating' }, { status: 400 });
   }
+  if (country && !COUNTRIES.includes(country)) {
+    return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
+  }
 
   const info = await db
     .prepare(
-      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       name,
@@ -146,7 +150,8 @@ export async function POST(req) {
       last_contact_date,
       claude_chat_link,
       gmail_labels,
-      is_read ? 1 : 0
+      is_read ? 1 : 0,
+      country
     )
     .run();
 

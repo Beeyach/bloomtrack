@@ -8,6 +8,7 @@ const COLUMNS = [
   { key: 'business_name',     label: 'Business' },
   { key: 'email',             label: 'Email' },
   { key: 'domain',            label: 'Domain' },
+  { key: 'country',           label: 'Country' },
   { key: 'rating',            label: 'Rating' },
   { key: 'stage',             label: 'Stage' },
   { key: 'emails_sent',       label: '#' },
@@ -16,6 +17,19 @@ const COLUMNS = [
   { key: 'claude_chat_link',  label: 'Chat' },
 ];
 
+// Countries you email, keyed by the short code stored in the DB. `flag` is
+// the emoji shown in the cell/dropdown; `tz` is a representative IANA
+// timezone echoed on window.bloomtrack so the follow-up automation can
+// time sends (e.g. AU during their local midnight). US/CA span multiple
+// zones — these are business-hours representatives, not exact.
+const COUNTRY_META = {
+  US: { flag: '🇺🇸', label: 'United States', tz: 'America/New_York' },
+  CA: { flag: '🇨🇦', label: 'Canada',        tz: 'America/Toronto' },
+  AU: { flag: '🇦🇺', label: 'Australia',     tz: 'Australia/Sydney' },
+  NZ: { flag: '🇳🇿', label: 'New Zealand',   tz: 'Pacific/Auckland' },
+  UK: { flag: '🇬🇧', label: 'United Kingdom', tz: 'Europe/London' },
+};
+
 // Default column widths (px). User-resized values are merged from localStorage.
 const COL_DEFAULTS = {
   __select: 40,
@@ -23,6 +37,7 @@ const COL_DEFAULTS = {
   business_name: 180,
   email: 220,
   domain: 180,
+  country: 84,
   rating: 70,
   stage: 150,
   emails_sent: 50,
@@ -471,6 +486,135 @@ function StagePicker({ value, stages, onChange }) {
   );
 }
 
+// Country flag selector. Same portal + flip machinery as StagePicker so it
+// never gets clipped by the table's horizontal scroll. Shows the flag emoji
+// (or a dashed placeholder), opens a small list of flag + code + name.
+function CountryPicker({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const meta = value ? COUNTRY_META[value] : null;
+
+  const MENU_WIDTH = 176; // w-44
+  const MENU_MAX_HEIGHT = Math.round(
+    typeof window !== 'undefined' ? window.innerHeight * 0.5 : 360
+  );
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < Math.min(MENU_MAX_HEIGHT, 260) && rect.top > spaceBelow;
+    const left = Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8);
+    setPos(
+      openUp
+        ? { left, bottom: window.innerHeight - rect.top + 6, maxHeight: rect.top - 16 }
+        : { left, top: rect.bottom + 6, maxHeight: spaceBelow - 16 }
+    );
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (wrapRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function onScroll(e) {
+      if (popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onResize() {
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
+
+  function pick(c) {
+    setOpen(false);
+    if (c !== (value || null)) onChange(c);
+  }
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-sm"
+        title={meta ? `${meta.label} · ${meta.tz}` : 'Set country'}
+      >
+        {meta ? (
+          <>
+            <span className="text-base leading-none">{meta.flag}</span>
+            <span className="text-[11px] font-mono text-muted">{value}</span>
+          </>
+        ) : (
+          <span className="text-xs text-muted/60">—</span>
+        )}
+        <Icon name="chevron-down" className="w-3 h-3 opacity-50" />
+      </button>
+      {open && pos && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="fixed z-50 w-44 bg-surface border border-line rounded-xl shadow-card p-1.5 overflow-y-auto bw-scroll"
+            style={{
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+              maxHeight: Math.max(120, Math.min(pos.maxHeight, MENU_MAX_HEIGHT)),
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => pick(null)}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-sm transition ${
+                !value ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
+              }`}
+            >
+              <span className="w-5 text-center text-muted">—</span>
+              <span className="text-muted">None</span>
+            </button>
+            {options.map((c) => {
+              const m = COUNTRY_META[c] || {};
+              const isCurrent = c === value;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => pick(c)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-sm transition ${
+                    isCurrent ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'
+                  }`}
+                >
+                  <span className="text-base leading-none w-5 text-center">{m.flag}</span>
+                  <span className="font-mono text-xs text-muted w-6">{c}</span>
+                  <span className="truncate">{m.label}</span>
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
 // Stages that imply an email just went out — bumps emails_sent + last_contact_date.
 const AUTO_EMAIL_STAGES = new Set([
   'Email 1', 'Email 2', 'Email 3', 'Email 4', 'Email 5',
@@ -523,6 +667,11 @@ function enrichProspect(p) {
     last_contact_date: p.last_contact_date ?? null,
     claude_chat_link: p.claude_chat_link ?? null,
     gmail_labels: p.gmail_labels ?? null,
+    country: p.country ?? null,
+    // Representative IANA timezone for the country, so the automation can
+    // compute local send times without its own lookup table. null if the
+    // prospect has no country set.
+    timezone: p.country && COUNTRY_META[p.country] ? COUNTRY_META[p.country].tz : null,
     due: isDueProspect(p),
   };
 }
@@ -561,6 +710,7 @@ function enrichProspect(p) {
 function makeBloomtrackApi({
   stages,
   ratings,
+  countries,
   autoEmailStages,
   getAllProspects,
   updateProspectById,
@@ -639,6 +789,17 @@ function makeBloomtrackApi({
       }
       return patchByEmail(email, { rating });
     },
+    async setCountry(email, country) {
+      // Accept null/'' to clear. Uppercase + a couple of aliases so
+      // setCountry('gb') / setCountry('cad') don't surprise the caller.
+      let c = country ? String(country).trim().toUpperCase() : null;
+      if (c === 'GB') c = 'UK';
+      if (c === 'CAD') c = 'CA';
+      if (c != null && !countries.includes(c)) {
+        throw new Error(`Invalid country: ${country}. Valid: ${countries.join(', ')}`);
+      }
+      return patchByEmail(email, { country: c });
+    },
     setLastContact(email, iso) {
       return patchByEmail(email, { last_contact_date: iso || null });
     },
@@ -652,6 +813,11 @@ function makeBloomtrackApi({
     // ----- Constants (handy for the caller) -----
     stages: [...stages],
     ratings: [...ratings],
+    countries: [...countries],
+    // code → IANA timezone, so the automation can time sends per prospect.
+    COUNTRY_TIMEZONES: Object.fromEntries(
+      Object.entries(COUNTRY_META).map(([code, m]) => [code, m.tz])
+    ),
     AUTO_EMAIL_STAGES: [...autoEmailStages],
     DEFAULT_DUE_STAGES: [...DEFAULT_DUE_STAGES],
     DUE_DAYS_BY_STAGE: { ...DUE_DAYS_BY_STAGE },
@@ -659,7 +825,7 @@ function makeBloomtrackApi({
   };
 }
 
-export default function ProspectsApp({ stages, ratings }) {
+export default function ProspectsApp({ stages, ratings, countries = [] }) {
   // ─── Canonical store ───────────────────────────────────────────────────
   // `allProspects` is the single source of truth. The table renders from a
   // memoized filtered/sorted projection of this array. Writes patch this
@@ -857,7 +1023,7 @@ export default function ProspectsApp({ stages, ratings }) {
 
     let rows = allProspects.filter((p) => {
       if (q) {
-        const hay = [p.name, p.business_name, p.email, p.domain, p.stage, p.rating]
+        const hay = [p.name, p.business_name, p.email, p.domain, p.stage, p.rating, p.country]
           .map((x) => (x || '').toString().toLowerCase())
           .join(' ');
         if (!hay.includes(q)) return false;
@@ -935,6 +1101,7 @@ export default function ProspectsApp({ stages, ratings }) {
     const api = makeBloomtrackApi({
       stages,
       ratings,
+      countries,
       autoEmailStages: AUTO_EMAIL_STAGES,
       getAllProspects: () => getAllRef.current(),
       updateProspectById: (id, patch) => updateProspectByIdRef.current(id, patch),
@@ -953,7 +1120,7 @@ export default function ProspectsApp({ stages, ratings }) {
         delete window.bloomtrack;
       }
     };
-  }, [stages, ratings]);
+  }, [stages, ratings, countries]);
 
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +
@@ -1510,6 +1677,13 @@ export default function ProspectsApp({ stages, ratings }) {
                         <DomainCell
                           value={p.domain}
                           onSave={(v) => updateProspect(p.id, { domain: v })}
+                        />
+                      </td>
+                      <td className="px-2 py-1 align-top">
+                        <CountryPicker
+                          value={p.country}
+                          options={countries}
+                          onChange={(v) => updateProspect(p.id, { country: v })}
                         />
                       </td>
                       <td className="px-2 py-1 align-top">
