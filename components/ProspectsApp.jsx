@@ -701,13 +701,14 @@ function isDueProspect(p) {
 }
 
 // ── Stats categories ───────────────────────────────────────────────────
-// "Responded" = the prospect engaged back in some form (replied, booked,
-// converted, rejected, or told us "not now"). Nudge/Potential are our own
-// assessments, not their reply. Email/social/Rekindled stages are outreach
-// we sent that's still awaiting a response.
+// "Responded" = the prospect actually replied in some form: said yes
+// (Interested/Booked/Client/Payment Awaiting), said no (Rejected), or asked
+// to come back later (Snoozed). Lost = no reply after the sequence, so it
+// does NOT count. Re-warm (was interested, then went quiet) doesn't count —
+// no confirmed current reply. Nudge/Potential are our own assessments.
 const RESPONDED_STAGES = new Set([
   'Replied', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
-  'Rejected', 'Snoozed', 'Re-warm',
+  'Rejected', 'Snoozed',
 ]);
 // Positive outcomes (a paying/committed client).
 const WON_STAGES = new Set(['Client', 'Payment Awaiting']);
@@ -2119,9 +2120,10 @@ function StatsView({ prospects, stages }) {
       </div>
 
       <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
-        Response rate = responded ÷ reached out. "Responded" counts Replied,
-        Interested, Booked, Client, Payment Awaiting, Rejected, Snoozed, and
-        Re-warm (anyone who engaged back). Conversion = Clients ÷ reached out.
+        Response rate = responded ÷ reached out. "Responded" counts anyone who
+        replied — Replied, Interested, Booked, Client, Payment Awaiting,
+        Rejected, and Snoozed. Lost (no reply) and Re-warm don't count.
+        Conversion = Clients ÷ reached out.
       </p>
     </div>
   );
