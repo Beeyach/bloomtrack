@@ -700,6 +700,47 @@ function isDueProspect(p) {
   return d >= threshold;
 }
 
+// ── Stats categories ───────────────────────────────────────────────────
+// "Responded" = the prospect engaged back in some form (replied, booked,
+// converted, rejected, or told us "not now"). Nudge/Potential are our own
+// assessments, not their reply. Email/social/Rekindled stages are outreach
+// we sent that's still awaiting a response.
+const RESPONDED_STAGES = new Set([
+  'Replied', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
+  'Rejected', 'Snoozed', 'Re-warm',
+]);
+// Positive outcomes (a paying/committed client).
+const WON_STAGES = new Set(['Client', 'Payment Awaiting']);
+
+// Pure, synchronous rollup over the canonical prospect list. Used by both
+// the Stats tab and window.bloomtrack.getStats().
+function computeStats(prospects) {
+  const byStage = {};
+  let responded = 0, won = 0, booked = 0, interested = 0, newCount = 0, rejected = 0, lost = 0;
+  for (const p of prospects) {
+    const s = p.stage || 'New';
+    byStage[s] = (byStage[s] || 0) + 1;
+    if (s === 'New') newCount++;
+    if (RESPONDED_STAGES.has(s)) responded++;
+    if (WON_STAGES.has(s)) won++;
+    if (s === 'Booked') booked++;
+    if (s === 'Interested') interested++;
+    if (s === 'Rejected') rejected++;
+    if (s === 'Lost') lost++;
+  }
+  const total = prospects.length;
+  const reachedOut = total - newCount;
+  const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+  return {
+    total, newCount, reachedOut,
+    responded, responseRate: pct(responded, reachedOut),
+    interested, booked,
+    won, conversionRate: pct(won, reachedOut),
+    rejected, lost,
+    byStage,
+  };
+}
+
 // Serializable shape returned by window.bloomtrack.getProspects(). Aliases
 // business_name → business per the automation spec, and adds two computed
 // fields the agent uses to make decisions without re-deriving them.
@@ -811,6 +852,9 @@ function makeBloomtrackApi({
       const p = findRaw(email);
       return p ? enrichProspect(p) : null;
     },
+    getStats() {
+      return computeStats(getAllProspects());
+    },
 
     // ----- Write -----
     async setStage(email, stage) {
@@ -896,6 +940,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [ratingChecked, setRatingChecked] = useState(() => new Set(allRatingOpts));
   const [stageChecked, setStageChecked] = useState(() => new Set(allStageOpts));
   const [dueOnly, setDueOnly] = useState(false);
+  const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -1466,6 +1511,25 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         </div>
       </header>
 
+      {/* View switcher: prospects table vs. live stats. */}
+      <div className="mb-6 inline-flex rounded-xl border border-line bg-surface p-1 shadow-card">
+        {[
+          { key: 'prospects', label: 'Prospects' },
+          { key: 'stats', label: 'Stats' },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setView(t.key)}
+            className={`px-4 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg transition ${
+              view === t.key ? 'bg-charcoal text-paper' : 'text-charcoal-2 hover:bg-blush-soft'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'prospects' && (
       <div className="mb-5 flex items-center gap-3 flex-wrap relative">
         {/* Search + filter share a soft "input group" container so they
             read as one tool rather than two stacked widgets. */}
@@ -1564,8 +1628,11 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
           </button>
         </div>
       </div>
+      )}
 
-      {showEmptyState ? (
+      {view === 'stats' ? (
+        <StatsView prospects={allProspects} stages={stages} />
+      ) : showEmptyState ? (
         <section className="bg-surface border border-line rounded-2xl p-16 text-center shadow-card">
           <div className="inline-flex w-16 h-16 mb-5 rounded-full bg-blush-soft items-center justify-center text-mauve-deep">
             <Icon name="sprout" className="w-7 h-7" />
@@ -1981,6 +2048,97 @@ function WorldClockBar() {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/* ----- Stats view ----- */
+
+// Live analytics over the canonical prospect list. Pure derivation via
+// useMemo — recomputes instantly whenever a stage changes, no refetch.
+function StatsView({ prospects, stages }) {
+  const s = useMemo(() => computeStats(prospects), [prospects]);
+  const maxStage = Math.max(1, ...stages.map((st) => s.byStage[st] || 0));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Total prospects" value={s.total} />
+        <StatCard label="Reached out" value={s.reachedOut} sub={`${s.newCount} still New`} />
+        <StatCard label="Responded" value={s.responded} sub={`${s.responseRate}% response rate`} accent />
+        <StatCard label="Clients" value={s.won} sub={`${s.conversionRate}% conversion`} accent />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Interested" value={s.interested} small />
+        <StatCard label="Booked calls" value={s.booked} small />
+        <StatCard label="Rejected" value={s.rejected} small />
+        <StatCard label="Lost" value={s.lost} small />
+      </div>
+
+      <div className="bg-surface border border-line rounded-2xl p-5 shadow-card">
+        <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-4">
+          Breakdown by stage
+        </div>
+        <div className="space-y-1.5">
+          {stages.map((st) => {
+            const count = s.byStage[st] || 0;
+            const meta = STAGE_META[st] || {};
+            const share = s.total > 0 ? Math.round((count / s.total) * 100) : 0;
+            return (
+              <div key={st} className="flex items-center gap-3">
+                <span
+                  className="w-36 shrink-0 flex items-center gap-1.5 text-xs"
+                  style={{ color: meta.faded ? 'var(--muted)' : 'var(--charcoal)' }}
+                >
+                  <span style={{ color: meta.border }}>
+                    <StageIcon stage={st} className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="truncate">{st}</span>
+                </span>
+                <div className="flex-1 h-4 rounded bg-paper overflow-hidden">
+                  <div
+                    className="h-full rounded-r"
+                    style={{
+                      width: `${(count / maxStage) * 100}%`,
+                      backgroundColor: meta.bg,
+                      borderRight: count ? `2px solid ${meta.border}` : 'none',
+                    }}
+                  />
+                </div>
+                <span className="w-10 text-right font-mono num-tabular text-xs text-charcoal">
+                  {count}
+                </span>
+                <span className="w-10 text-right font-mono num-tabular text-[10px] text-muted">
+                  {share}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
+        Response rate = responded ÷ reached out. "Responded" counts Replied,
+        Interested, Booked, Client, Payment Awaiting, Rejected, Snoozed, and
+        Re-warm (anyone who engaged back). Conversion = Clients ÷ reached out.
+      </p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, accent, small }) {
+  return (
+    <div className={`bg-surface border rounded-2xl p-4 shadow-card ${accent ? 'border-mauve' : 'border-line'}`}>
+      <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted">{label}</div>
+      <div
+        className={`mt-1 font-mono num-tabular ${small ? 'text-2xl' : 'text-4xl'} ${
+          accent ? 'text-mauve-deep' : 'text-charcoal'
+        }`}
+      >
+        {value}
+      </div>
+      {sub && <div className="mt-0.5 text-[11px] font-mono text-muted">{sub}</div>}
     </div>
   );
 }
