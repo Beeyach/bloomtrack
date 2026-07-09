@@ -710,20 +710,21 @@ const RESPONDED_STAGES = new Set([
   'Replied', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
   'Rejected', 'Snoozed',
 ]);
-// Positive outcomes (a paying/committed client).
-const WON_STAGES = new Set(['Client', 'Payment Awaiting']);
-
 // Pure, synchronous rollup over the canonical prospect list. Used by both
-// the Stats tab and window.bloomtrack.getStats().
+// the Stats tab and window.bloomtrack.getStats(). Every count maps to
+// exactly one stage — nothing is summed across stages, so the numbers
+// match what you see in the pipeline.
 function computeStats(prospects) {
   const byStage = {};
-  let responded = 0, won = 0, booked = 0, interested = 0, newCount = 0, rejected = 0, lost = 0;
+  let responded = 0, booked = 0, interested = 0, newCount = 0,
+    rejected = 0, lost = 0, clients = 0, paymentAwaiting = 0;
   for (const p of prospects) {
     const s = p.stage || 'New';
     byStage[s] = (byStage[s] || 0) + 1;
     if (s === 'New') newCount++;
     if (RESPONDED_STAGES.has(s)) responded++;
-    if (WON_STAGES.has(s)) won++;
+    if (s === 'Client') clients++;
+    if (s === 'Payment Awaiting') paymentAwaiting++;
     if (s === 'Booked') booked++;
     if (s === 'Interested') interested++;
     if (s === 'Rejected') rejected++;
@@ -736,7 +737,7 @@ function computeStats(prospects) {
     total, newCount, reachedOut,
     responded, responseRate: pct(responded, reachedOut),
     interested, booked,
-    won, conversionRate: pct(won, reachedOut),
+    clients, paymentAwaiting, conversionRate: pct(clients, reachedOut),
     rejected, lost,
     byStage,
   };
@@ -2067,7 +2068,12 @@ function StatsView({ prospects, stages }) {
         <StatCard label="Total prospects" value={s.total} />
         <StatCard label="Reached out" value={s.reachedOut} sub={`${s.newCount} still New`} />
         <StatCard label="Responded" value={s.responded} sub={`${s.responseRate}% response rate`} accent />
-        <StatCard label="Clients" value={s.won} sub={`${s.conversionRate}% conversion`} accent />
+        <StatCard
+          label="Clients"
+          value={s.clients}
+          sub={`${s.conversionRate}% conversion${s.paymentAwaiting ? ` · ${s.paymentAwaiting} awaiting pay` : ''}`}
+          accent
+        />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
