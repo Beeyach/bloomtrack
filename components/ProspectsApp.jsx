@@ -396,9 +396,63 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <path d="M9 13h6M9 17h6" />
         </svg>
       );
+    case 'upload':
+      return (
+        <svg {...common}>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <path d="m7 9 5-5 5 5" />
+          <path d="M12 4v12" />
+        </svg>
+      );
+    case 'download':
+      return (
+        <svg {...common}>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <path d="m7 11 5 5 5-5" />
+          <path d="M12 16V4" />
+        </svg>
+      );
+    case 'plus':
+      return (
+        <svg {...common}>
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      );
     default:
       return null;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Decorative botanical sprigs flanking the masthead title. Purely ornamental
+// (aria-hidden), drawn in currentColor so they inherit whatever text color
+// the caller sets. A curved stem with three leaves, filled at low opacity so
+// they read as hand-drawn rather than clip-art. `flip` mirrors the sprig for
+// the right-hand side so both curve inward toward the title.
+// ─────────────────────────────────────────────────────────────────────────
+function LeafSprig({ flip = false, className = 'w-8 h-7' }) {
+  return (
+    <svg
+      viewBox="0 0 40 32"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={flip ? { transform: 'scaleX(-1)' } : undefined}
+    >
+      {/* Stem, curving up and to the right (toward the title). */}
+      <path d="M2 28C10 27 22 22 36 6" />
+      {/* Lower leaf */}
+      <path d="M11 25c-1.6-3.2-.6-6.3 2.6-7.4 1.2 3.4.4 6.2-2.6 7.4Z" fill="currentColor" fillOpacity="0.2" />
+      {/* Middle leaf */}
+      <path d="M20 19c-.6-3.5 1.2-6.2 4.6-6.3.2 3.6-1.4 5.9-4.6 6.3Z" fill="currentColor" fillOpacity="0.2" />
+      {/* Upper leaf */}
+      <path d="M28.5 11.5c.2-3.5 2.5-5.6 5.7-4.9-.8 3.5-2.9 5.2-5.7 4.9Z" fill="currentColor" fillOpacity="0.2" />
+    </svg>
+  );
 }
 
 // Looks up a stage's icon name and renders the SVG. Falls back to a
@@ -1024,6 +1078,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [dueOnly, setDueOnly] = useState(false);
   const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
   const [seqProspect, setSeqProspect] = useState(null); // row shown in the email-sequence modal
+  const [addOpen, setAddOpen] = useState(false); // quick-add form collapsed by default
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -1331,6 +1386,14 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
     setRatingChecked(new Set());
     setStageChecked(new Set());
   }
+  // Toolbar "Clear filters": return to showing everything. Note this is the
+  // opposite of the FilterPanel's "Clear all", which UNchecks every box.
+  function resetFilters() {
+    setSearch('');
+    setDueOnly(false);
+    setRatingChecked(new Set(allRatingOpts));
+    setStageChecked(new Set(allStageOpts));
+  }
   function toggleSort(key) {
     setSort((prev) => {
       if (prev.key !== key) return { key, dir: 'asc' };
@@ -1577,141 +1640,165 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   return (
     <div className="min-h-screen px-6 py-10 sm:py-14 max-w-[1500px] mx-auto">
-      <header className="mb-10 flex items-start justify-between gap-6 flex-wrap">
-        <div>
-          <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal">
-            Bloomtrack
-          </h1>
-          <p className="mt-2 text-sm font-mono uppercase tracking-[0.18em] text-muted">
-            Prospecting · since today
-          </p>
+      {/* Centered masthead: title anchors the page, everything groups around it. */}
+      <header className="mb-6 text-center">
+        <h1 className="font-serif text-5xl sm:text-6xl leading-none tracking-tight text-charcoal flex items-center justify-center gap-3 sm:gap-4">
+          <span className="text-muted/40">
+            <LeafSprig className="w-7 h-6 sm:w-8 sm:h-7" />
+          </span>
+          <span>Bloomtrack</span>
+          <span className="text-muted/40">
+            <LeafSprig flip className="w-7 h-6 sm:w-8 sm:h-7" />
+          </span>
+        </h1>
+        <p className="mt-2 text-sm font-mono uppercase tracking-[0.18em] text-muted">
+          Prospecting · since today
+        </p>
+        <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
+          {totalCount} prospect{totalCount === 1 ? '' : 's'} on file
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="mt-4">
           <WorldClockBar />
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
-            {totalCount} prospect{totalCount === 1 ? '' : 's'} on file
-          </div>
         </div>
       </header>
 
-      {/* View switcher: prospects table vs. live stats. */}
-      <div className="mb-6 inline-flex rounded-xl border border-line bg-surface p-1 shadow-card">
-        {[
-          { key: 'prospects', label: 'Prospects' },
-          { key: 'stats', label: 'Stats' },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setView(t.key)}
-            className={`px-4 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg transition ${
-              view === t.key ? 'bg-charcoal text-paper' : 'text-charcoal-2 hover:bg-blush-soft'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {view === 'prospects' && (
-      <div className="mb-5 flex items-center gap-3 flex-wrap relative">
-        {/* Search + filter share a soft "input group" container so they
-            read as one tool rather than two stacked widgets. */}
-        <div className="flex items-center gap-2 bg-surface border border-line rounded-xl px-2 py-1.5 shadow-card">
-          <span className="ml-1 text-muted">
-            <Icon name="search" className="w-4 h-4" />
-          </span>
-          <input
-            type="text"
-            placeholder="Search name, business, email, domain…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="px-2 py-1.5 text-sm bg-transparent border-0 outline-none w-72 placeholder:text-muted/80"
-          />
-
-          <div className="relative">
-            <button
-              ref={filtersBtnRef}
-              onClick={() => setFiltersOpen((v) => !v)}
-              className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
-                hiddenCount > 0
-                  ? 'bg-mauve text-white'
-                  : 'text-charcoal-2 hover:bg-blush-soft'
-              }`}
-            >
-              <span>Filters</span>
-              {hiddenCount > 0 && (
-                <span className="text-[10px] opacity-80">· {hiddenCount}</span>
-              )}
-              <span className="text-[10px] opacity-70">▾</span>
-            </button>
-
-            {filtersOpen && (
-              <FilterPanel
-                ref={filtersPanelRef}
-                ratings={ratings}
-                stages={stages}
-                ratingChecked={ratingChecked}
-                stageChecked={stageChecked}
-                toggleRating={(r) => toggleInSet(setRatingChecked, r)}
-                toggleStage={(s) => toggleInSet(setStageChecked, s)}
-                onSelectAll={selectAllFilters}
-                onClearAll={clearAllFilters}
-                onDone={() => setFiltersOpen(false)}
-              />
-            )}
+      {/* One toolbar card, two rows: nav+search on top, filters+count below. */}
+      <div className="mb-4 bg-surface border border-line rounded-2xl shadow-card relative">
+        {/* Row 1 — view switcher, search, import/export */}
+        <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
+          <div className="inline-flex rounded-xl border border-line p-1 shrink-0">
+            {[
+              { key: 'prospects', label: 'Prospects' },
+              { key: 'stats', label: 'Stats' },
+            ].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setView(t.key)}
+                className={`px-3 py-1 text-xs font-mono uppercase tracking-[0.14em] rounded-lg transition ${
+                  view === t.key ? 'bg-charcoal text-paper' : 'text-charcoal-2 hover:bg-blush-soft'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
-          {/* Due quick-filter. One click filters the table to rows where
-              stage ∈ {Email 1, 2, 3} AND days_ago ≥ 3 — the daily-sweep
-              shortlist. Count badge shows total due across the whole
-              store, not the current view, so it stays meaningful even
-              when other filters are on. */}
-          <button
-            onClick={() => setDueOnly((v) => !v)}
-            className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
-              dueOnly
-                ? 'bg-mauve-deep text-white'
-                : 'text-charcoal-2 hover:bg-blush-soft'
-            }`}
-            title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (Email 1→3d, Email 2→5d, Email 3-4→7d, Snoozed→30d, Re-warm→60d)'}
-          >
-            <Icon name="bell" className="w-3.5 h-3.5" />
-            <span>Due</span>
-            {dueCount > 0 && (
-              <span className="text-[10px] opacity-80">· {dueCount}</span>
+          {view === 'prospects' && (
+            <div className="flex items-center gap-2 flex-1 min-w-[220px] bg-paper border border-line rounded-xl px-2.5 py-1.5">
+              <span className="text-muted shrink-0">
+                <Icon name="search" className="w-4 h-4" />
+              </span>
+              <input
+                type="text"
+                placeholder="Search name, business, email, domain…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="py-0.5 text-sm bg-transparent border-0 outline-none w-full placeholder:text-muted/80"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-1 shrink-0 ml-auto">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
+              title="Import CSV"
+              aria-label="Import CSV"
+            >
+              <Icon name="upload" className="w-4 h-4" />
+            </button>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={onFilePick}
+            />
+            <button
+              onClick={exportCsv}
+              className="p-2 text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
+              title="Export CSV"
+              aria-label="Export CSV"
+            >
+              <Icon name="download" className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 — filters, due, count, clear */}
+        {view === 'prospects' && (
+          <div className="px-4 py-2 border-t border-line/50 flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <button
+                ref={filtersBtnRef}
+                onClick={() => setFiltersOpen((v) => !v)}
+                className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
+                  hiddenCount > 0
+                    ? 'bg-mauve text-white'
+                    : 'text-charcoal-2 hover:bg-blush-soft'
+                }`}
+              >
+                <span>Filters</span>
+                {hiddenCount > 0 && (
+                  <span className="text-[10px] opacity-80">· {hiddenCount}</span>
+                )}
+                <span className="text-[10px] opacity-70">▾</span>
+              </button>
+
+              {filtersOpen && (
+                <FilterPanel
+                  ref={filtersPanelRef}
+                  ratings={ratings}
+                  stages={stages}
+                  ratingChecked={ratingChecked}
+                  stageChecked={stageChecked}
+                  toggleRating={(r) => toggleInSet(setRatingChecked, r)}
+                  toggleStage={(s) => toggleInSet(setStageChecked, s)}
+                  onSelectAll={selectAllFilters}
+                  onClearAll={clearAllFilters}
+                  onDone={() => setFiltersOpen(false)}
+                />
+              )}
+            </div>
+
+            {/* Due quick-filter. Badge counts due across the whole store, not
+                the current view, so it stays meaningful with other filters on. */}
+            <button
+              onClick={() => setDueOnly((v) => !v)}
+              className={`px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] rounded-lg flex items-center gap-1.5 transition ${
+                dueOnly
+                  ? 'bg-mauve-deep text-white'
+                  : 'text-charcoal-2 hover:bg-blush-soft'
+              }`}
+              title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (Email 1→3d, Email 2→5d, Email 3-4→7d, Snoozed→30d, Re-warm→60d)'}
+            >
+              <Icon name="bell" className="w-3.5 h-3.5" />
+              <span>Due</span>
+              {dueCount > 0 && (
+                <span className="text-[10px] opacity-80">· {dueCount}</span>
+              )}
+            </button>
+
+            <span className="w-px h-4 bg-line" />
+
+            <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
+              {hasActiveFilter
+                ? `${visibleProspects.length} / ${totalCount} shown`
+                : `${totalCount} total`}
+            </div>
+
+            {hasActiveFilter && (
+              <button
+                onClick={resetFilters}
+                className="ml-auto px-2 py-1 text-[10px] font-mono uppercase tracking-[0.14em] text-muted hover:text-charcoal transition"
+                title="Reset search, filters, and the Due toggle"
+              >
+                ✕ Clear filters
+              </button>
             )}
-          </button>
-        </div>
-
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
-          {hasActiveFilter
-            ? `${visibleProspects.length} / ${totalCount} shown`
-            : `${totalCount} total`}
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
-          >
-            Import CSV
-          </button>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            ref={fileInputRef}
-            className="hidden"
-            onChange={onFilePick}
-          />
-          <button
-            onClick={exportCsv}
-            className="px-3 py-1.5 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 rounded-lg hover:bg-blush-soft transition"
-          >
-            Export CSV
-          </button>
-        </div>
+          </div>
+        )}
       </div>
-      )}
 
       {view === 'stats' ? (
         <StatsView prospects={allProspects} stages={stages} />
@@ -1736,15 +1823,33 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         </section>
       ) : (
         <>
-          {/* Quick-add lives as a separate card above the table so it
-              reads like an intentional "new entry" affordance rather
-              than a header row of the table. */}
+          {/* Quick-add is collapsed by default so browsing isn't cluttered.
+              It expands into the same card layout it always had. */}
+          {!addOpen ? (
+            <button
+              onClick={() => setAddOpen(true)}
+              className="mb-3 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 bg-surface border border-line rounded-xl shadow-card hover:bg-blush-soft transition"
+            >
+              <Icon name="plus" className="w-3.5 h-3.5" />
+              Add prospect
+            </button>
+          ) : (
           <form
             onSubmit={addProspect}
             className="mb-3 bg-surface border border-line rounded-2xl p-4 shadow-card"
           >
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
-              Add a prospect
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted">
+                Add a prospect
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddOpen(false)}
+                className="text-muted hover:text-charcoal text-xs px-2 py-1 rounded hover:bg-blush-soft transition"
+                title="Cancel"
+              >
+                ✕
+              </button>
             </div>
             <div className="flex flex-wrap gap-2">
               <input
@@ -1801,6 +1906,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
               </button>
             </div>
           </form>
+          )}
 
           <div
             className="bg-surface border border-line rounded-2xl overflow-x-auto shadow-card bw-scroll"
@@ -2123,7 +2229,7 @@ function WorldClockBar() {
   }, []);
 
   return (
-    <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1">
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
       {WORLD_CLOCKS.map((c) => {
         const time = now
           ? now.toLocaleTimeString('en-US', {
@@ -2131,11 +2237,14 @@ function WorldClockBar() {
             })
           : '––:––';
         return (
-          <span key={c.tz} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
-            <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">
+          <span
+            key={c.tz}
+            className="inline-flex items-baseline gap-1.5 whitespace-nowrap rounded-full bg-surface border border-line px-2.5 py-1"
+          >
+            <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-muted">
               {c.label}
             </span>
-            <span className="text-xs font-mono num-tabular text-charcoal-2">
+            <span className="text-[11px] font-mono num-tabular text-charcoal-2">
               {time}
             </span>
           </span>
