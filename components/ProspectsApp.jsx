@@ -14,6 +14,7 @@ const COLUMNS = [
   { key: 'emails_sent',       label: '#' },
   { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
+  { key: 'email_sequence',    label: 'Seq' },
   { key: 'claude_chat_link',  label: 'Chat' },
 ];
 
@@ -43,6 +44,7 @@ const COL_DEFAULTS = {
   emails_sent: 50,
   days_ago: 80,
   last_contact_date: 120,
+  email_sequence: 60,
   claude_chat_link: 60,
   __delete: 40,
 };
@@ -743,6 +745,21 @@ function computeStats(prospects) {
   };
 }
 
+// email_sequence is stored in D1 as a JSON *string* (no native JSON type).
+// Accept a string (parse it), an already-parsed array (pass through), or
+// null/garbage (→ null). Never throws.
+function parseEmailSequence(raw) {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // Serializable shape returned by window.bloomtrack.getProspects(). Aliases
 // business_name → business per the automation spec, and adds two computed
 // fields the agent uses to make decisions without re-deriving them.
@@ -760,9 +777,13 @@ function enrichProspect(p) {
     emails_sent: p.emails_sent ?? 0,
     days_ago: daysBetween(p.last_contact_date),
     last_contact_date: p.last_contact_date ?? null,
+    // Unchanged: the daily-sweep automations read this. Do not rename/move.
     claude_chat_link: p.claude_chat_link ?? null,
     gmail_labels: p.gmail_labels ?? null,
     country: p.country ?? null,
+    email_sequence: parseEmailSequence(p.email_sequence),
+    audit_notes: p.audit_notes ?? null,
+    pdf_filename: p.pdf_filename ?? null,
     // Representative IANA timezone for the country, so the automation can
     // compute local send times without its own lookup table. null if the
     // prospect has no country set.
@@ -908,6 +929,45 @@ function makeBloomtrackApi({
       return patchByEmail(email, { claude_chat_link: url || null });
     },
 
+    // ----- Email sequence storage -----
+    // sequence: [{ number, subject, body }, ...] (up to 5). Stored as a JSON
+    // string because D1 has no native JSON type. Body whitespace is preserved
+    // verbatim — no trimming.
+    async setEmailSequence(email, sequence) {
+      if (!Array.isArray(sequence)) {
+        throw new Error('setEmailSequence: sequence must be an array');
+      }
+      sequence.forEach((e, i) => {
+        if (!e || typeof e !== 'object') {
+          throw new Error(`setEmailSequence: entry ${i} is not an object`);
+        }
+        if (typeof e.number !== 'number') {
+          throw new Error(`setEmailSequence: entry ${i} missing numeric "number"`);
+        }
+        if (typeof e.subject !== 'string' || typeof e.body !== 'string') {
+          throw new Error(`setEmailSequence: entry ${i} needs string "subject" and "body"`);
+        }
+      });
+      return patchByEmail(email, { email_sequence: JSON.stringify(sequence) });
+    },
+    async setAuditNotes(email, notes) {
+      return patchByEmail(email, { audit_notes: notes || null });
+    },
+    async setPdfFilename(email, filename) {
+      return patchByEmail(email, { pdf_filename: filename || null });
+    },
+    // Synchronous read of the parsed sequence (or null).
+    getEmailSequence(email) {
+      const p = findRaw(email);
+      return p ? parseEmailSequence(p.email_sequence) : null;
+    },
+    // Synchronous read of one email by its number (1-5), or null.
+    getEmailByNumber(email, number) {
+      const seq = this.getEmailSequence(email);
+      if (!Array.isArray(seq)) return null;
+      return seq.find((e) => e.number === number) || null;
+    },
+
     // ----- UI -----
     refresh,
 
@@ -943,6 +1003,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [stageChecked, setStageChecked] = useState(() => new Set(allStageOpts));
   const [dueOnly, setDueOnly] = useState(false);
   const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
+  const [seqProspect, setSeqProspect] = useState(null); // row shown in the email-sequence modal
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -1872,6 +1933,9 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                         onSave={(v) => updateProspect(p.id, { last_contact_date: v || null })}
                       />
                       <td className="px-2 py-1 align-top">
+                        <SeqCell prospect={p} onOpen={() => setSeqProspect(p)} />
+                      </td>
+                      <td className="px-2 py-1 align-top">
                         <ChatCell
                           value={p.claude_chat_link}
                           onSave={(v) => updateProspect(p.id, { claude_chat_link: v })}
@@ -1970,6 +2034,13 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         </div>
       )}
 
+      {seqProspect && (
+        <EmailSequenceModal
+          prospect={seqProspect}
+          onClose={() => setSeqProspect(null)}
+        />
+      )}
+
       {importPreview && (
         <div className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-surface border border-line rounded-2xl p-7 max-w-md w-full shadow-card">
@@ -2050,6 +2121,148 @@ function WorldClockBar() {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/* ----- Email sequence ----- */
+
+// Compact cell: shows how many emails are stored (e.g. "3/5"), or "—" when
+// the prospect has no sequence yet. Clicking opens the viewer modal.
+function SeqCell({ prospect, onOpen }) {
+  const seq = parseEmailSequence(prospect.email_sequence);
+  const count = Array.isArray(seq) ? seq.length : 0;
+  const hasExtras = prospect.audit_notes || prospect.pdf_filename;
+
+  if (!count && !hasExtras) {
+    return (
+      <button
+        onClick={onOpen}
+        className="cell-display text-sm text-muted/60 hover:text-mauve-deep transition"
+        title="No emails stored — click to view"
+      >
+        —
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={onOpen}
+      className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-mauve-deep"
+      title={`${count} email${count === 1 ? '' : 's'} stored — click to view`}
+    >
+      <Icon name="mail" className="w-3.5 h-3.5" />
+      <span className="text-[11px] font-mono num-tabular text-charcoal-2">
+        {count}/5
+      </span>
+    </button>
+  );
+}
+
+// Read-only viewer for the stored cold-outreach sequence. Bodies render in a
+// pre-wrap block so line breaks and spacing survive exactly as stored.
+function EmailSequenceModal({ prospect, onClose }) {
+  const seq = parseEmailSequence(prospect.email_sequence) || [];
+  const sorted = [...seq].sort((a, b) => (a.number || 0) - (b.number || 0));
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const title = prospect.business_name || prospect.name || prospect.email || 'Prospect';
+
+  return (
+    <div
+      className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 py-10"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface border border-line rounded-2xl shadow-card w-full max-w-2xl max-h-full overflow-y-auto bw-scroll"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-surface border-b border-line px-7 pt-6 pb-4 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Email sequence
+            </div>
+            <h3 className="font-serif text-2xl text-charcoal leading-tight">{title}</h3>
+            {prospect.email && (
+              <div className="mt-1 text-xs font-mono text-muted">{prospect.email}</div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 text-muted hover:text-charcoal text-sm px-2 py-1 rounded hover:bg-blush-soft transition"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-7 py-6 space-y-6">
+          {prospect.audit_notes && (
+            <section>
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
+                Audit notes
+              </div>
+              <div className="bg-paper border border-line rounded-xl p-4 text-sm text-charcoal-2 whitespace-pre-wrap leading-relaxed">
+                {prospect.audit_notes}
+              </div>
+            </section>
+          )}
+
+          {prospect.pdf_filename && (
+            <section>
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
+                Email 5 PDF
+              </div>
+              <div className="inline-flex items-center gap-2 bg-paper border border-line rounded-lg px-3 py-2">
+                <span className="text-mauve-deep">
+                  <Icon name="clipboard" className="w-3.5 h-3.5" />
+                </span>
+                <span className="text-xs font-mono text-charcoal-2">
+                  {prospect.pdf_filename}
+                </span>
+              </div>
+            </section>
+          )}
+
+          <section>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
+              Emails ({sorted.length})
+            </div>
+            {sorted.length === 0 ? (
+              <p className="text-sm text-muted italic">
+                No emails stored for this prospect yet.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {sorted.map((e, i) => (
+                  <article
+                    key={e.number ?? i}
+                    className="bg-paper border border-line rounded-xl overflow-hidden"
+                  >
+                    <header className="px-4 py-3 border-b border-line/70 flex items-baseline gap-3">
+                      <span className="shrink-0 w-6 h-6 rounded-full bg-mauve text-white text-[11px] font-mono flex items-center justify-center">
+                        {e.number}
+                      </span>
+                      <span className="text-sm font-medium text-charcoal leading-snug">
+                        {e.subject || <span className="text-muted italic">(no subject)</span>}
+                      </span>
+                    </header>
+                    <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{e.body}</pre>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
