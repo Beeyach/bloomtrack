@@ -388,6 +388,14 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
         </svg>
       );
+    case 'file-text':
+      return (
+        <svg {...common}>
+          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" />
+          <path d="M14 2v5h5" />
+          <path d="M9 13h6M9 17h6" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -743,6 +751,18 @@ function computeStats(prospects) {
     rejected, lost,
     byStage,
   };
+}
+
+// Which email number was most recently SENT to this prospect.
+// The stage is the source of truth while they're in the sequence
+// ("Email 3" ⇒ emails 1-3 went out). Once they leave it (Replied,
+// Interested, …) the stage no longer encodes a number, so fall back to the
+// emails_sent counter, capped at 5.
+function getLastSentNumber(prospect) {
+  const stage = prospect?.stage || '';
+  const match = stage.match(/^Email (\d)$/);
+  if (match) return parseInt(match[1], 10);
+  return Math.min(prospect?.emails_sent || 0, 5);
 }
 
 // email_sequence is stored in D1 as a JSON *string* (no native JSON type).
@@ -2127,35 +2147,70 @@ function WorldClockBar() {
 
 /* ----- Email sequence ----- */
 
-// Compact cell: shows how many emails are stored (e.g. "3/5"), or "—" when
-// the prospect has no sequence yet. Clicking opens the viewer modal.
+// Compact cell that reads at a glance:
+//   · no sequence, no extras → ghost mail + "＋" (add a sequence)
+//   · no sequence, but audit/PDF exist → clipboard (there's data worth seeing)
+//   · sequence with unsent emails → mail + count of what's LEFT to send
+//   · sequence fully sent → green check (complete)
+// Clicking always opens the viewer modal.
 function SeqCell({ prospect, onOpen }) {
   const seq = parseEmailSequence(prospect.email_sequence);
   const count = Array.isArray(seq) ? seq.length : 0;
-  const hasExtras = prospect.audit_notes || prospect.pdf_filename;
+  const hasExtras = !!(prospect.audit_notes || prospect.pdf_filename);
 
+  // Nothing stored at all — invite adding a sequence.
   if (!count && !hasExtras) {
     return (
       <button
         onClick={onOpen}
-        className="cell-display text-sm text-muted/60 hover:text-mauve-deep transition"
+        className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-lg border border-dashed border-line text-muted/60 hover:text-mauve-deep hover:border-mauve transition"
         title="No emails stored — click to view"
       >
-        —
+        <Icon name="mail" className="w-3.5 h-3.5" />
+        <span className="text-[10px] font-mono leading-none">＋</span>
       </button>
     );
   }
 
+  // Audit notes / PDF but no emails yet — still worth opening.
+  if (!count) {
+    return (
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center px-1.5 py-1 rounded-lg border border-line text-charcoal-2 hover:bg-blush-soft transition"
+        title="Audit notes / PDF stored — click to view"
+      >
+        <Icon name="clipboard" className="w-3.5 h-3.5" />
+      </button>
+    );
+  }
+
+  const lastSent = getLastSentNumber(prospect);
+  const unsent = seq.filter((e) => (e.number || 0) > lastSent).length;
+
+  // Every stored email has gone out.
+  if (unsent === 0) {
+    return (
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition"
+        style={{ color: '#3D8030' }}
+        title={`All ${count} email${count === 1 ? '' : 's'} sent — click to view`}
+      >
+        <Icon name="check-circle" className="w-3.5 h-3.5" />
+      </button>
+    );
+  }
+
+  // Some still to send — the badge is a to-do count.
   return (
     <button
       onClick={onOpen}
       className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-mauve-deep"
-      title={`${count} email${count === 1 ? '' : 's'} stored — click to view`}
+      title={`${unsent} of ${count} email${count === 1 ? '' : 's'} left to send — click to view`}
     >
       <Icon name="mail" className="w-3.5 h-3.5" />
-      <span className="text-[11px] font-mono num-tabular text-charcoal-2">
-        {count}/5
-      </span>
+      <span className="text-[11px] font-mono num-tabular text-charcoal-2">{unsent}</span>
     </button>
   );
 }
@@ -2163,8 +2218,21 @@ function SeqCell({ prospect, onOpen }) {
 // Read-only viewer for the stored cold-outreach sequence. Bodies render in a
 // pre-wrap block so line breaks and spacing survive exactly as stored.
 function EmailSequenceModal({ prospect, onClose }) {
+  const [showAll, setShowAll] = useState(false);
   const seq = parseEmailSequence(prospect.email_sequence) || [];
   const sorted = [...seq].sort((a, b) => (a.number || 0) - (b.number || 0));
+
+  const lastSent = getLastSentNumber(prospect);
+  const unsent = sorted.filter((e) => (e.number || 0) > lastSent);
+  const sentCount = sorted.length - unsent.length;
+  const allSent = sorted.length > 0 && unsent.length === 0;
+  const nextUp = unsent[0] || null;
+  // Only worth a toggle when there's actually something hidden either way.
+  const canToggle = sentCount > 0 && unsent.length > 0;
+  // When everything's sent there's nothing to hide, so always show the lot.
+  const visible = showAll || allSent ? sorted : unsent;
+  // Email 4 means Email 5 (the one carrying the PDF) is up next.
+  const pdfIsNext = prospect.stage === 'Email 4';
 
   useEffect(() => {
     function onKey(e) {
@@ -2221,49 +2289,111 @@ function EmailSequenceModal({ prospect, onClose }) {
               <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
                 Email 5 PDF
               </div>
-              <div className="inline-flex items-center gap-2 bg-paper border border-line rounded-lg px-3 py-2">
-                <span className="text-mauve-deep">
-                  <Icon name="clipboard" className="w-3.5 h-3.5" />
+              <div
+                className={`inline-flex flex-col gap-1 rounded-lg px-3 py-2 border transition ${
+                  pdfIsNext ? 'border-mauve bg-blush-soft' : 'border-line bg-paper'
+                }`}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <span className="text-mauve-deep">
+                    <Icon name="file-text" className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="text-xs font-mono text-charcoal-2">
+                    {prospect.pdf_filename}
+                  </span>
                 </span>
-                <span className="text-xs font-mono text-charcoal-2">
-                  {prospect.pdf_filename}
+                <span className="text-[10px] font-mono text-muted">
+                  Stored in prospect-pdfs/
                 </span>
               </div>
+              {pdfIsNext && (
+                <p className="mt-1.5 text-[10px] font-mono text-mauve-deep">
+                  Email 5 is next — attach this.
+                </p>
+              )}
             </section>
           )}
 
           <section>
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
-              Emails ({sorted.length})
+            <div className="flex items-baseline justify-between gap-3 mb-3">
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted">
+                Emails ({sorted.length})
+              </div>
+              {canToggle && (
+                <button
+                  onClick={() => setShowAll((v) => !v)}
+                  className="text-[10px] font-mono uppercase tracking-[0.14em] text-mauve-deep hover:underline"
+                >
+                  {showAll ? 'Show unsent only' : `Show all emails (${sentCount} sent)`}
+                </button>
+              )}
             </div>
+
             {sorted.length === 0 ? (
               <p className="text-sm text-muted italic">
                 No emails stored for this prospect yet.
               </p>
             ) : (
-              <div className="space-y-4">
-                {sorted.map((e, i) => (
-                  <article
-                    key={e.number ?? i}
-                    className="bg-paper border border-line rounded-xl overflow-hidden"
-                  >
-                    <header className="px-4 py-3 border-b border-line/70 flex items-baseline gap-3">
-                      <span className="shrink-0 w-6 h-6 rounded-full bg-mauve text-white text-[11px] font-mono flex items-center justify-center">
-                        {e.number}
-                      </span>
-                      <span className="text-sm font-medium text-charcoal leading-snug">
-                        {e.subject || <span className="text-muted italic">(no subject)</span>}
-                      </span>
-                    </header>
-                    <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{e.body}</pre>
-                  </article>
-                ))}
-              </div>
+              <>
+                {allSent && (
+                  <p className="mb-3 text-[11px] font-mono text-muted">Sequence complete.</p>
+                )}
+                <div className="space-y-4">
+                  {visible.map((e, i) => (
+                    <EmailCard
+                      key={e.number ?? i}
+                      email={e}
+                      sent={(e.number || 0) <= lastSent}
+                      isNext={!!nextUp && e.number === nextUp.number}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+// One email in the sequence. `sent` dims it and swaps in a SENT pill;
+// `isNext` gives it the mauve left-edge stripe as the one to send next.
+function EmailCard({ email, sent, isNext }) {
+  return (
+    <article
+      className={`bg-paper border border-line rounded-xl overflow-hidden transition ${
+        isNext ? 'border-l-4 border-l-mauve-deep' : ''
+      } ${sent ? 'opacity-60' : ''}`}
+    >
+      <header className="px-4 py-3 border-b border-line/70 flex items-center gap-2.5 flex-wrap">
+        <span
+          className={`shrink-0 w-6 h-6 rounded-full text-[11px] font-mono flex items-center justify-center ${
+            sent ? 'bg-charcoal/10 text-muted' : 'bg-mauve text-white'
+          }`}
+        >
+          {email.number}
+        </span>
+        {sent && (
+          <span className="bg-charcoal/10 text-muted text-[9px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded-full">
+            Sent
+          </span>
+        )}
+        {isNext && (
+          <span className="bg-mauve-deep text-white text-[9px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded-full">
+            Next to send
+          </span>
+        )}
+        <span
+          className={`text-sm font-medium leading-snug min-w-0 ${
+            sent ? 'text-muted' : 'text-charcoal'
+          }`}
+        >
+          {email.subject || <span className="text-muted italic">(no subject)</span>}
+        </span>
+      </header>
+      <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{email.body}</pre>
+    </article>
   );
 }
 
