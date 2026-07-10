@@ -15,6 +15,7 @@ const COLUMNS = [
   { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
   { key: 'email_sequence',    label: 'Seq' },
+  { key: 'info',              label: 'Info' },
   { key: 'claude_chat_link',  label: 'Chat' },
 ];
 
@@ -45,6 +46,7 @@ const COL_DEFAULTS = {
   days_ago: 80,
   last_contact_date: 120,
   email_sequence: 60,
+  info: 54,
   claude_chat_link: 60,
   __delete: 40,
 };
@@ -416,6 +418,14 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
       return (
         <svg {...common}>
           <path d="M12 5v14M5 12h14" />
+        </svg>
+      );
+    case 'info':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
         </svg>
       );
     default:
@@ -858,6 +868,7 @@ function enrichProspect(p) {
     email_sequence: parseEmailSequence(p.email_sequence),
     audit_notes: p.audit_notes ?? null,
     pdf_filename: p.pdf_filename ?? null,
+    info: p.info || null,
     // Representative IANA timezone for the country, so the automation can
     // compute local send times without its own lookup table. null if the
     // prospect has no country set.
@@ -1042,6 +1053,15 @@ function makeBloomtrackApi({
       return seq.find((e) => e.number === number) || null;
     },
 
+    // ----- Info (freeform audit notes: niche, location, services, findings) -----
+    async setInfo(email, text) {
+      return patchByEmail(email, { info: text || null });
+    },
+    getInfo(email) {
+      const p = findRaw(email);
+      return p?.info || null;
+    },
+
     // ----- UI -----
     refresh,
 
@@ -1078,6 +1098,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [dueOnly, setDueOnly] = useState(false);
   const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
   const [seqProspect, setSeqProspect] = useState(null); // row shown in the email-sequence modal
+  const [infoModal, setInfoModal] = useState(null); // row shown in the info modal
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -2042,6 +2063,9 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                         <SeqCell prospect={p} onOpen={() => setSeqProspect(p)} />
                       </td>
                       <td className="px-2 py-1 align-top">
+                        <InfoCell prospect={p} onOpen={() => setInfoModal(p)} />
+                      </td>
+                      <td className="px-2 py-1 align-top">
                         <ChatCell
                           value={p.claude_chat_link}
                           onSave={(v) => updateProspect(p.id, { claude_chat_link: v })}
@@ -2147,6 +2171,16 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         />
       )}
 
+      {infoModal && (
+        <InfoModal
+          prospect={infoModal}
+          onClose={() => setInfoModal(null)}
+          // Reuse the canonical write path: optimistic patch of the store,
+          // server confirm, rollback + alert on failure.
+          onSave={(id, text) => updateProspect(id, { info: text || null })}
+        />
+      )}
+
       {importPreview && (
         <div className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-surface border border-line rounded-2xl p-7 max-w-md w-full shadow-card">
@@ -2230,6 +2264,125 @@ function WorldClockBar() {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/* ----- Info ----- */
+
+// Compact cell for the freeform audit notes. Faint outline "i" when empty,
+// solid mauve when there's content (with a truncated hover preview).
+function InfoCell({ prospect, onOpen }) {
+  const info = prospect.info || '';
+  const hasInfo = info.trim().length > 0;
+  const preview = hasInfo
+    ? info.length > 80
+      ? `${info.slice(0, 80)}…`
+      : info
+    : 'No info yet — click to add';
+
+  return (
+    <button
+      onClick={onOpen}
+      title={preview}
+      aria-label={hasInfo ? 'View info' : 'Add info'}
+      className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-full transition ${
+        hasInfo ? 'text-mauve-deep hover:opacity-80' : 'text-muted/50 hover:text-mauve-deep'
+      }`}
+    >
+      <Icon name="info" className="w-[18px] h-[18px]" />
+    </button>
+  );
+}
+
+// Plain-text editor for `info`. No markdown, no rich text — just a textarea.
+// Ctrl/Cmd+Enter saves, Escape cancels.
+function InfoModal({ prospect, onClose, onSave }) {
+  const [text, setText] = useState(prospect.info || '');
+  const [saving, setSaving] = useState(false);
+  const textareaRef = useRef(null);
+
+  const title =
+    prospect.name || prospect.business_name || prospect.domain || prospect.email || 'Prospect';
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  async function handleSave() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave(prospect.id, text);
+      onClose();
+    } catch {
+      // updateProspect already surfaced the error and rolled the store back.
+      setSaving(false);
+    }
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSave();
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 py-10"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface border border-line rounded-2xl shadow-card w-full max-w-lg"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
+        <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 border-b border-line">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Info
+            </div>
+            <h3 className="font-serif text-2xl text-charcoal leading-tight">{title}</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 text-muted hover:text-charcoal text-sm px-2 py-1 rounded hover:bg-blush-soft transition"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-6 py-5">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Niche, location, services, key findings from the audit…"
+            className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-paper border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed placeholder:text-muted/70 focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
+          />
+          <p className="mt-2 text-[10px] font-mono text-muted">
+            Ctrl/Cmd + Enter to save · Esc to cancel
+          </p>
+        </div>
+
+        <div className="px-6 pb-5 flex items-center justify-end gap-4">
+          <button onClick={onClose} className="text-muted text-sm hover:text-charcoal transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-mauve-deep text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

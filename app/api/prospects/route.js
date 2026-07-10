@@ -10,7 +10,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, created_at, updated_at';
 
 export async function GET(req) {
   const db = getDb();
@@ -125,6 +125,7 @@ export async function POST(req) {
     email_sequence = null,
     audit_notes = null,
     pdf_filename = null,
+    info = null,
   } = body || {};
 
   if (stage && !STAGES.includes(stage)) {
@@ -137,10 +138,11 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
   }
 
-  const info = await db
+  // Named `result` (not `info`) — `info` is now a bound column value above.
+  const result = await db
     .prepare(
-      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       name,
@@ -157,13 +159,14 @@ export async function POST(req) {
       country,
       email_sequence,
       audit_notes,
-      pdf_filename
+      pdf_filename,
+      info
     )
     .run();
 
   // D1's run() returns { meta: { last_row_id, changes, ... } }. We need
   // last_row_id to fetch the fresh row back.
-  const newId = info?.meta?.last_row_id;
+  const newId = result?.meta?.last_row_id;
   const row = await db
     .prepare(`SELECT ${SELECT_COLS} FROM prospects WHERE id = ?`)
     .bind(newId)
