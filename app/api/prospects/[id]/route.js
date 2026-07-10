@@ -23,10 +23,11 @@ const ALLOWED_FIELDS = [
   'email_sequence',
   'audit_notes',
   'pdf_filename',
+  'info',
 ];
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, created_at, updated_at';
 
 export async function PUT(req, { params }) {
   const { id } = await params;
