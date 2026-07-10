@@ -2953,10 +2953,28 @@ function EmailCard({
         </div>
       ) : (
         <>
-          <div className="px-4 pt-3 text-sm font-medium leading-snug text-charcoal">
-            {email.subject || <span className="text-muted italic">(no subject)</span>}
+          {/* Label subject and body explicitly. Bold-vs-normal alone left the
+              subject ambiguous to skim (and to anything scraping the DOM). */}
+          <div className="px-4 pt-3">
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Subject
+            </div>
+            <div
+              data-email-subject
+              className="text-sm font-medium leading-snug text-charcoal"
+            >
+              {email.subject || <span className="text-muted italic">(no subject)</span>}
+            </div>
           </div>
-          <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{email.body}</pre>
+          <div className="px-4 pt-3">
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Body
+            </div>
+          </div>
+          <pre
+            data-email-body
+            className="px-4 pb-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0"
+          >{email.body}</pre>
           {reviewUrl && (
             <div className="px-4 pb-3 -mt-1">
               <a
