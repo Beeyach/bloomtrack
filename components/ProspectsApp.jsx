@@ -2492,17 +2492,32 @@ function InfoModal({ prospect, onClose, onSave }) {
           </button>
         </div>
 
-        <div className="px-6 py-5">
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Niche, location, services, key findings from the audit…"
-            className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-paper border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed placeholder:text-muted/70 focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
-          />
-          <p className="mt-2 text-[10px] font-mono text-muted">
-            Ctrl/Cmd + Enter to save · Esc to cancel
-          </p>
+        <div className="px-6 py-5 space-y-5">
+          {prospect.audit_notes && (
+            <section>
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
+                Audit notes
+              </div>
+              <div className="bg-paper border border-line rounded-xl p-4 text-sm text-charcoal-2 whitespace-pre-wrap leading-relaxed max-h-[240px] overflow-y-auto bw-scroll">
+                {prospect.audit_notes}
+              </div>
+            </section>
+          )}
+          <section>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
+              Notes
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Niche, location, services, key findings from the audit…"
+              className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-paper border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed placeholder:text-muted/70 focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
+            />
+            <p className="mt-2 text-[10px] font-mono text-muted">
+              Ctrl/Cmd + Enter to save · Esc to cancel
+            </p>
+          </section>
         </div>
 
         <div className="px-6 pb-5 flex items-center justify-end gap-4">
@@ -2526,14 +2541,16 @@ function InfoModal({ prospect, onClose, onSave }) {
 
 // Compact cell that reads at a glance:
 //   · no sequence, no extras → ghost mail + "＋" (add a sequence)
-//   · no sequence, but audit/PDF exist → clipboard (there's data worth seeing)
+//   · no sequence, but a review PDF exists → clipboard (data worth seeing)
 //   · sequence with unsent emails → mail + count of what's LEFT to send
 //   · sequence fully sent → green check (complete)
 // Clicking always opens the viewer modal.
 function SeqCell({ prospect, onOpen }) {
   const seq = parseEmailSequence(prospect.email_sequence);
   const count = Array.isArray(seq) ? seq.length : 0;
-  const hasExtras = !!(prospect.audit_notes || prospect.pdf_filename);
+  // Only count what the Seq modal actually shows. Audit notes moved to the
+  // Info modal, so they must not make this cell promise content here.
+  const hasExtras = !!(prospect.pdf_filename || prospect.review_url);
 
   // Nothing stored at all — invite adding a sequence.
   if (!count && !hasExtras) {
@@ -2549,13 +2566,13 @@ function SeqCell({ prospect, onOpen }) {
     );
   }
 
-  // Audit notes / PDF but no emails yet — still worth opening.
+  // A review PDF but no emails yet — still worth opening.
   if (!count) {
     return (
       <button
         onClick={onOpen}
         className="inline-flex items-center px-1.5 py-1 rounded-lg border border-line text-charcoal-2 hover:bg-blush-soft transition"
-        title="Audit notes / PDF stored — click to view"
+        title="Review PDF stored — click to view"
       >
         <Icon name="clipboard" className="w-3.5 h-3.5" />
       </button>
@@ -2679,17 +2696,6 @@ function EmailSequenceModal({ prospect, onClose, onSaveSequence }) {
         </div>
 
         <div className="px-7 py-6 space-y-6">
-          {prospect.audit_notes && (
-            <section>
-              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
-                Audit notes
-              </div>
-              <div className="bg-paper border border-line rounded-xl p-4 text-sm text-charcoal-2 whitespace-pre-wrap leading-relaxed">
-                {prospect.audit_notes}
-              </div>
-            </section>
-          )}
-
           {(prospect.pdf_filename || prospect.review_url) && (
             <section>
               <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
