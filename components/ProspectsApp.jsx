@@ -11,12 +11,10 @@ const COLUMNS = [
   { key: 'country',           label: 'Country' },
   { key: 'rating',            label: 'Rating' },
   { key: 'stage',             label: 'Stage' },
-  { key: 'emails_sent',       label: '#' },
   { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
   { key: 'email_sequence',    label: 'Seq' },
   { key: 'info',              label: 'Info' },
-  { key: 'claude_chat_link',  label: 'Chat' },
 ];
 
 // Countries you email, keyed by the short code stored in the DB. `flag` is
@@ -42,12 +40,10 @@ const COL_DEFAULTS = {
   country: 84,
   rating: 70,
   stage: 150,
-  emails_sent: 50,
   days_ago: 80,
   last_contact_date: 120,
   email_sequence: 60,
   info: 54,
-  claude_chat_link: 60,
   __delete: 40,
 };
 const COL_MIN_WIDTH = 36;
@@ -62,21 +58,22 @@ const FILTERS_KEY = 'bloomtrack:filters:v1';
 // the row for stages that are effectively dead-ends.
 // Bg + border colors are deliberately saturated so the chip stands apart
 // from the paper bg and the left-edge stripe reads at a glance. The Email
-// series progresses through a warm tan→bronze gradient so you can clock
-// "where in the funnel" without reading the number.
+// series walks distinct hues (yellow → coral → rose → violet → teal) so two
+// adjacent stages never read as the same color at a glance.
 const STAGE_META = {
   New:        { icon: 'sparkle',        bg: '#F4E5E9',     border: '#8E6A8D' },
-  'Email 1':  { icon: 'send',           bg: '#F4E4CB',     border: '#A8895E' },
-  'Email 2':  { icon: 'send',           bg: '#EFD7B5',     border: '#9A774A' },
-  'Email 3':  { icon: 'send',           bg: '#E8C99D',     border: '#8B6638' },
-  'Email 4':  { icon: 'send',           bg: '#DFBA85',     border: '#7C572A' },
-  'Email 5':  { icon: 'send',           bg: '#D4A96E',     border: '#6D481D' },
+  'Email 1':  { icon: 'send',           bg: '#FCEFB0',     border: '#B89400' },
+  'Email 2':  { icon: 'send',           bg: '#FBD3AE',     border: '#D9711E' },
+  'Email 3':  { icon: 'send',           bg: '#F8C4D2',     border: '#C23B63' },
+  'Email 4':  { icon: 'send',           bg: '#DECBF3',     border: '#7B4FBF' },
+  'Email 5':  { icon: 'send',           bg: '#BDE6DE',     border: '#1E8C7A' },
   Instagram:      { icon: 'instagram',  bg: '#F3D9EC',     border: '#B84A8E' },
   Facebook:       { icon: 'facebook',   bg: '#D3E0F5',     border: '#3B5998' },
   LinkedIn:       { icon: 'linkedin',   bg: '#CFE0EE',     border: '#0A66C2' },
   'Contact Form': { icon: 'clipboard',  bg: '#D3EAE6',     border: '#3B8C7E' },
   Rekindled:  { icon: 'flame',          bg: '#FBD0A5',     border: '#C76A1F' },
   Replied:    { icon: 'message',        bg: '#D2E7BD',     border: '#5B8A3E' },
+  'Setup Check': { icon: 'settings',    bg: '#CDE8D6',     border: '#2E8C63' },
   Interested: { icon: 'heart',          bg: '#B6DCAB',     border: '#3D8030' },
   Potential:  { icon: 'trending-up',    bg: '#FBCEA3',     border: '#B86A2A' },
   Nudge:      { icon: 'bell',           bg: '#F2DF92',     border: '#9C8425' },
@@ -185,13 +182,6 @@ function normalizeDomainHref(domain) {
 // "https://gobloomwired.com/review/renee-zaia" → "gobloomwired.com/review/renee-zaia"
 function stripProtocol(url) {
   return String(url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '');
-}
-
-function normalizeChatHref(url) {
-  if (!url) return '#';
-  let u = url.trim();
-  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-  return u;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -467,6 +457,13 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="16" x2="12" y2="12" />
           <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg {...common}>
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
         </svg>
       );
     default:
@@ -822,7 +819,7 @@ function isDueProspect(p) {
 // does NOT count. Re-warm (was interested, then went quiet) doesn't count —
 // no confirmed current reply. Nudge/Potential are our own assessments.
 const RESPONDED_STAGES = new Set([
-  'Replied', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
+  'Replied', 'Setup Check', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
   'Rejected', 'Snoozed',
 ]);
 // Pure, synchronous rollup over the canonical prospect list. Used by both
@@ -2178,10 +2175,6 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                           onChange={(s) => handleStageChange(p, s)}
                         />
                       </td>
-                      <NumberCell
-                        value={p.emails_sent ?? 0}
-                        onSave={(v) => updateProspect(p.id, { emails_sent: parseInt(v, 10) || 0 })}
-                      />
                       <DaysAgoCell value={p.last_contact_date} due={isDueProspect(p)} />
                       <EditableCell
                         value={p.last_contact_date}
@@ -2193,12 +2186,6 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                       </td>
                       <td className="px-2 py-1 align-top">
                         <InfoCell prospect={p} onOpen={() => setInfoModal(p)} />
-                      </td>
-                      <td className="px-2 py-1 align-top">
-                        <ChatCell
-                          value={p.claude_chat_link}
-                          onSave={(v) => updateProspect(p.id, { claude_chat_link: v })}
-                        />
                       </td>
                       <td className="px-2 py-1 align-top text-right">
                         <button
@@ -3337,78 +3324,6 @@ function EditableCell({ value, onSave, type = 'text', displayClassName = '' }) {
   );
 }
 
-function NumberCell({ value, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? 0);
-  const inputRef = useRef(null);
-  const tdRef = useRef(null);
-  const num = Number(value) || 0;
-  const displayClass =
-    num >= 3 ? 'font-bold text-charcoal' : num === 2 ? 'text-charcoal' : 'text-muted';
-
-  useEffect(() => {
-    if (!editing) setDraft(value ?? 0);
-  }, [value, editing]);
-
-  useEffect(() => {
-    if (editing) {
-      const input = inputRef.current;
-      if (input) {
-        input.focus();
-        try { input.select(); } catch {}
-      }
-    }
-  }, [editing]);
-
-  function commit() {
-    setEditing(false);
-    const parsed = parseInt(draft, 10);
-    const next = Number.isFinite(parsed) ? parsed : 0;
-    if ((Number(value) || 0) !== next) onSave(next);
-  }
-
-  function onKeyDown(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commit();
-    } else if (e.key === 'Escape') {
-      setDraft(value ?? 0);
-      setEditing(false);
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      commit();
-      const td = tdRef.current;
-      setTimeout(() => focusNextEditable(td, e.shiftKey), 0);
-    }
-  }
-
-  return (
-    <td
-      ref={tdRef}
-      data-tab="1"
-      className="px-2 py-1 align-top text-center"
-      onClick={() => !editing && setEditing(true)}
-    >
-      {editing ? (
-        <input
-          ref={inputRef}
-          type="number"
-          min="0"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onKeyDown}
-          className="cell-input text-sm w-14 text-center"
-        />
-      ) : (
-        <span className={`cell-display text-sm inline-block w-10 text-center font-mono num-tabular ${displayClass}`}>
-          {num}
-        </span>
-      )}
-    </td>
-  );
-}
-
 function DaysAgoCell({ value, due }) {
   const n = daysBetween(value);
   if (n == null) {
@@ -3503,81 +3418,6 @@ function RatingCell({ value, options, onChange }) {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function ChatCell({ value, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? '');
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    if (!editing) setDraft(value ?? '');
-  }, [value, editing]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      try { inputRef.current?.select(); } catch {}
-    }
-  }, [editing]);
-
-  function commit() {
-    setEditing(false);
-    const next = draft.trim() === '' ? null : draft.trim();
-    if ((value ?? null) !== next) onSave(next);
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); }
-          else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
-        }}
-        className="cell-input text-sm"
-        placeholder="Paste chat URL"
-      />
-    );
-  }
-
-  if (!value) {
-    return (
-      <span
-        className="cell-display text-sm text-muted/60 cursor-pointer"
-        onClick={() => setEditing(true)}
-        title="Click to add chat URL"
-      >
-        —
-      </span>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <a
-        href={normalizeChatHref(value)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-mauve-deep hover:bg-blush-soft transition"
-        onClick={(e) => e.stopPropagation()}
-        title={value}
-      >
-        <Icon name="link" className="w-3.5 h-3.5" />
-      </a>
-      <button
-        onClick={() => setEditing(true)}
-        className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-mauve-deep opacity-0 group-hover:opacity-100 transition"
-        title="Edit"
-      >
-        <Icon name="pencil" className="w-3 h-3" />
-      </button>
     </div>
   );
 }
