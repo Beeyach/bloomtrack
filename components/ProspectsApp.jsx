@@ -1078,7 +1078,6 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [dueOnly, setDueOnly] = useState(false);
   const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
   const [seqProspect, setSeqProspect] = useState(null); // row shown in the email-sequence modal
-  const [addOpen, setAddOpen] = useState(false); // quick-add form collapsed by default
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState(null);
   const filtersBtnRef = useRef(null);
@@ -1823,33 +1822,15 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         </section>
       ) : (
         <>
-          {/* Quick-add is collapsed by default so browsing isn't cluttered.
-              It expands into the same card layout it always had. */}
-          {!addOpen ? (
-            <button
-              onClick={() => setAddOpen(true)}
-              className="mb-3 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-mono uppercase tracking-[0.14em] text-charcoal-2 bg-surface border border-line rounded-xl shadow-card hover:bg-blush-soft transition"
-            >
-              <Icon name="plus" className="w-3.5 h-3.5" />
-              Add prospect
-            </button>
-          ) : (
+          {/* Quick-add lives as a separate card above the table so it
+              reads like an intentional "new entry" affordance rather
+              than a header row of the table. */}
           <form
             onSubmit={addProspect}
             className="mb-3 bg-surface border border-line rounded-2xl p-4 shadow-card"
           >
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted">
-                Add a prospect
-              </div>
-              <button
-                type="button"
-                onClick={() => setAddOpen(false)}
-                className="text-muted hover:text-charcoal text-xs px-2 py-1 rounded hover:bg-blush-soft transition"
-                title="Cancel"
-              >
-                ✕
-              </button>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
+              Add a prospect
             </div>
             <div className="flex flex-wrap gap-2">
               <input
@@ -1906,7 +1887,6 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
               </button>
             </div>
           </form>
-          )}
 
           <div
             className="bg-surface border border-line rounded-2xl overflow-x-auto shadow-card bw-scroll"
