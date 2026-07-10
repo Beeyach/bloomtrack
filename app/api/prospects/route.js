@@ -10,7 +10,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, created_at, updated_at';
 
 export async function GET(req) {
   const db = getDb();
@@ -122,6 +122,9 @@ export async function POST(req) {
     gmail_labels = null,
     is_read = 0,
     country = null,
+    email_sequence = null,
+    audit_notes = null,
+    pdf_filename = null,
   } = body || {};
 
   if (stage && !STAGES.includes(stage)) {
@@ -136,8 +139,8 @@ export async function POST(req) {
 
   const info = await db
     .prepare(
-      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       name,
@@ -151,7 +154,10 @@ export async function POST(req) {
       claude_chat_link,
       gmail_labels,
       is_read ? 1 : 0,
-      country
+      country,
+      email_sequence,
+      audit_notes,
+      pdf_filename
     )
     .run();
 
