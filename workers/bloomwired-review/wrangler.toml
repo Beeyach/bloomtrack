@@ -12,16 +12,6 @@ bucket_name = "bloomwired-pdfs"
 #   wrangler secret put UPLOAD_SECRET
 
 # ── Routing ──────────────────────────────────────────────────────────────
-# Option A (preferred): the zone is on Cloudflare DNS, so claim just the
-# /review/* path. Everything else on gobloomwired.com is untouched.
-routes = [
-  { pattern = "gobloomwired.com/review/*", zone_name = "gobloomwired.com" }
-]
-
-# Option B: if gobloomwired.com is a Pages site whose route swallows /review/*,
-# comment out `routes` above and attach a custom domain to this Worker instead
-# (Workers → bloomwired-review → Settings → Domains & Routes → Add custom
-# domain → review.gobloomwired.com). URLs become:
-#   https://review.gobloomwired.com/review/renee-zaia
-# If you'd rather they read review.gobloomwired.com/renee-zaia, change the
-# `/review/` prefix checks in src/index.js to match on `/` instead.
+# Custom domain file.gobloomwired.com is attached via the Cloudflare
+# dashboard (Workers → bloomwired-review → Settings → Domains & Routes).
+# No route config needed here — the custom domain handles it.

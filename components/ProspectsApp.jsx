@@ -858,6 +858,20 @@ function computeStats(prospects) {
   };
 }
 
+// Day the Nth email goes out, counting from Email 1 = Day 0. Derived from the
+// Due cadence so the two can't drift: 0, 3, 8, 15, 22.
+function emailDayOffset(number) {
+  let day = 0;
+  for (let n = 1; n < (number || 1); n++) day += DUE_DAYS_BY_STAGE[`Email ${n}`] ?? 0;
+  return day;
+}
+
+// "Email 2 — Day 3". Honors an explicit `day` on the stored email if present.
+function emailDayLabel(email) {
+  const day = typeof email?.day === 'number' ? email.day : emailDayOffset(email?.number);
+  return `Email ${email?.number ?? '?'} — Day ${day}`;
+}
+
 // Which email number was most recently SENT to this prospect.
 // The stage is the source of truth while they're in the sequence
 // ("Email 3" ⇒ emails 1-3 went out). Once they leave it (Replied,
@@ -1100,6 +1114,31 @@ function makeBloomtrackApi({
         }
       });
       return patchByEmail(email, { email_sequence: JSON.stringify(sequence) });
+    },
+    // Patch a single email's subject/body, leaving the rest of the sequence
+    // (and any extra fields like `day`) untouched. Immutable — never mutates
+    // the objects held in the store.
+    async updateEmail(prospectEmail, emailNumber, { subject, body } = {}) {
+      const p = findRaw(prospectEmail);
+      if (!p) throw new Error(`Prospect not found: ${prospectEmail}`);
+      const seq = parseEmailSequence(p.email_sequence);
+      if (!Array.isArray(seq) || seq.length === 0) {
+        throw new Error(`No sequence found for ${prospectEmail}`);
+      }
+      const idx = seq.findIndex((e) => e.number === emailNumber);
+      if (idx === -1) {
+        throw new Error(`Email ${emailNumber} not found in sequence`);
+      }
+      const next = seq.map((e, i) =>
+        i === idx
+          ? {
+              ...e,
+              ...(subject !== undefined ? { subject } : {}),
+              ...(body !== undefined ? { body } : {}),
+            }
+          : e
+      );
+      return this.setEmailSequence(prospectEmail, next);
     },
     async setAuditNotes(email, notes) {
       return patchByEmail(email, { audit_notes: notes || null });
@@ -2256,8 +2295,14 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
       {seqProspect && (
         <EmailSequenceModal
-          prospect={seqProspect}
+          // Read the live row from the canonical store, not the snapshot taken
+          // at click time — otherwise an edit saves but the modal keeps showing
+          // the stale sequence.
+          prospect={allProspects.find((p) => p.id === seqProspect.id) || seqProspect}
           onClose={() => setSeqProspect(null)}
+          onSaveSequence={(sequence) =>
+            updateProspect(seqProspect.id, { email_sequence: JSON.stringify(sequence) })
+          }
         />
       )}
 
@@ -2549,10 +2594,34 @@ function SeqCell({ prospect, onOpen }) {
 
 // Read-only viewer for the stored cold-outreach sequence. Bodies render in a
 // pre-wrap block so line breaks and spacing survive exactly as stored.
-function EmailSequenceModal({ prospect, onClose }) {
+function EmailSequenceModal({ prospect, onClose, onSaveSequence }) {
   const [showAll, setShowAll] = useState(false);
+  // Only one email may be in edit mode at a time.
+  const [editingNumber, setEditingNumber] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(null);
   const seq = parseEmailSequence(prospect.email_sequence) || [];
   const sorted = [...seq].sort((a, b) => (a.number || 0) - (b.number || 0));
+
+  // Rebuild the whole array with one entry replaced, then persist it. Extra
+  // fields on the email (e.g. `day`) are preserved.
+  async function saveEmail(number, { subject, body }) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const next = sorted.map((e) =>
+        e.number === number ? { ...e, subject, body } : e
+      );
+      await onSaveSequence(next);
+      setEditingNumber(null);
+      setJustSaved(number);
+      setTimeout(() => setJustSaved((n) => (n === number ? null : n)), 1600);
+    } catch {
+      // updateProspect already alerted and rolled the store back.
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const lastSent = getLastSentNumber(prospect);
   const unsent = sorted.filter((e) => (e.number || 0) > lastSent);
@@ -2568,18 +2637,23 @@ function EmailSequenceModal({ prospect, onClose }) {
 
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // Escape backs out of an edit first, so a stray keypress can't discard
+      // the whole modal (and the edit) in one go.
+      if (editingNumber != null) setEditingNumber(null);
+      else onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, editingNumber]);
 
   const title = prospect.business_name || prospect.name || prospect.email || 'Prospect';
 
   return (
     <div
       className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 py-10"
-      onClick={onClose}
+      // Don't let a stray backdrop click throw away an in-progress edit.
+      onClick={() => { if (editingNumber == null) onClose(); }}
     >
       <div
         className="bg-surface border border-line rounded-2xl shadow-card w-full max-w-2xl max-h-full overflow-y-auto bw-scroll"
@@ -2701,6 +2775,13 @@ function EmailSequenceModal({ prospect, onClose }) {
                       isNext={!!nextUp && e.number === nextUp.number}
                       // Email 5 is the one that carries the review PDF.
                       reviewUrl={e.number === 5 ? prospect.review_url : null}
+                      isEditing={editingNumber === e.number}
+                      // Starting an edit closes any other open one.
+                      onEdit={() => setEditingNumber(e.number)}
+                      onCancel={() => setEditingNumber(null)}
+                      onSave={(draft) => saveEmail(e.number, draft)}
+                      saving={saving}
+                      justSaved={justSaved === e.number}
                     />
                   ))}
                 </div>
@@ -2713,14 +2794,45 @@ function EmailSequenceModal({ prospect, onClose }) {
   );
 }
 
+// Textarea that grows to fit its content so a long email body doesn't sit in
+// a tiny scrolling box. Floors at 200px.
+function autoGrow(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(200, el.scrollHeight)}px`;
+}
+
 // One email in the sequence. `sent` dims it and swaps in a SENT pill;
 // `isNext` gives it the mauve left-edge stripe as the one to send next.
-function EmailCard({ email, sent, isNext, reviewUrl }) {
+// `isEditing` swaps the static subject/body for inputs.
+function EmailCard({
+  email, sent, isNext, reviewUrl,
+  isEditing, onEdit, onCancel, onSave, saving, justSaved,
+}) {
+  const [subject, setSubject] = useState(email.subject || '');
+  const [body, setBody] = useState(email.body || '');
+  const bodyRef = useRef(null);
+
+  // Re-seed the drafts whenever we (re)enter edit mode, or the stored email
+  // changes underneath us.
+  useEffect(() => {
+    if (isEditing) {
+      setSubject(email.subject || '');
+      setBody(email.body || '');
+    }
+  }, [isEditing, email.subject, email.body]);
+
+  useEffect(() => {
+    if (isEditing) autoGrow(bodyRef.current);
+  }, [isEditing]);
+
   return (
     <article
-      className={`bg-paper border border-line rounded-xl overflow-hidden transition ${
+      className={`bg-paper border rounded-xl overflow-hidden transition ${
         isNext ? 'border-l-4 border-l-mauve-deep' : ''
-      } ${sent ? 'opacity-60' : ''}`}
+      } ${sent && !isEditing ? 'opacity-60' : ''} ${
+        justSaved ? 'border-[#3D8030] ring-1 ring-[#3D8030]/30' : 'border-line'
+      }`}
     >
       <header className="px-4 py-3 border-b border-line/70 flex items-center gap-2.5 flex-wrap">
         <span
@@ -2729,6 +2841,9 @@ function EmailCard({ email, sent, isNext, reviewUrl }) {
           }`}
         >
           {email.number}
+        </span>
+        <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted shrink-0">
+          {emailDayLabel(email)}
         </span>
         {sent && (
           <span className="bg-charcoal/10 text-muted text-[9px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded-full">
@@ -2740,28 +2855,88 @@ function EmailCard({ email, sent, isNext, reviewUrl }) {
             Next to send
           </span>
         )}
-        <span
-          className={`text-sm font-medium leading-snug min-w-0 ${
-            sent ? 'text-muted' : 'text-charcoal'
-          }`}
-        >
-          {email.subject || <span className="text-muted italic">(no subject)</span>}
-        </span>
-      </header>
-      <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{email.body}</pre>
-      {reviewUrl && (
-        <div className="px-4 pb-3 -mt-1">
-          <a
-            href={reviewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-[11px] font-mono text-mauve-deep hover:underline break-all"
-            title={reviewUrl}
+        {justSaved && (
+          <span className="text-[9px] font-mono uppercase tracking-wide" style={{ color: '#3D8030' }}>
+            Saved
+          </span>
+        )}
+
+        {!isEditing && (
+          <button
+            onClick={onEdit}
+            className="ml-auto shrink-0 inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-[0.14em] text-muted hover:text-mauve-deep transition"
+            title="Edit this email"
           >
-            <Icon name="file-text" className="w-3 h-3 shrink-0" />
-            Review attached: {stripProtocol(reviewUrl)}
-          </a>
+            <Icon name="pencil" className="w-3 h-3" />
+            Edit
+          </button>
+        )}
+      </header>
+
+      {isEditing ? (
+        <div className="px-4 py-3 space-y-3">
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Subject
+            </label>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="w-full px-3 py-2 text-sm text-charcoal bg-surface border border-line rounded-lg outline-none focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
+              Body
+            </label>
+            <textarea
+              ref={bodyRef}
+              value={body}
+              onChange={(e) => {
+                setBody(e.target.value);
+                autoGrow(e.target);
+              }}
+              className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-surface border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-4">
+            <button
+              onClick={onCancel}
+              className="text-muted text-sm hover:text-charcoal transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onSave({ subject, body })}
+              disabled={saving}
+              className="bg-mauve-deep text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
+      ) : (
+        <>
+          <div className="px-4 pt-3 text-sm font-medium leading-snug text-charcoal">
+            {email.subject || <span className="text-muted italic">(no subject)</span>}
+          </div>
+          <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{email.body}</pre>
+          {reviewUrl && (
+            <div className="px-4 pb-3 -mt-1">
+              <a
+                href={reviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[11px] font-mono text-mauve-deep hover:underline break-all"
+                title={reviewUrl}
+              >
+                <Icon name="file-text" className="w-3 h-3 shrink-0" />
+                Review attached: {stripProtocol(reviewUrl)}
+              </a>
+            </div>
+          )}
+        </>
       )}
     </article>
   );
