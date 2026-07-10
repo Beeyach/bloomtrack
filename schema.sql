@@ -13,6 +13,9 @@
 --
 -- Migration: Add info column (run once on existing databases)
 -- npx wrangler d1 execute bloomtrack --command="ALTER TABLE prospects ADD COLUMN info TEXT;" --remote
+--
+-- Migration: Add review_url column (run once on existing databases)
+-- npx wrangler d1 execute bloomtrack --command="ALTER TABLE prospects ADD COLUMN review_url TEXT;" --remote
 -- ─────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS prospects (
@@ -39,6 +42,9 @@ CREATE TABLE IF NOT EXISTS prospects (
   -- Freeform notes from the website audit: niche, location, services, findings.
   -- Plain text (not JSON); line breaks preserved.
   info TEXT,
+  -- Public URL of the review PDF served from R2, e.g.
+  -- https://gobloomwired.com/review/renee-zaia
+  review_url TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

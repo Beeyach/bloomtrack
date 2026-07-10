@@ -105,6 +105,42 @@ const RATING_META = {
   '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
 };
 
+// Ratings are stored as emoji, which are awkward to type from automation.
+// Accept friendly names too — `rating: 'strong'` is nicer than `'💚'`.
+const RATING_ALIASES = {
+  strong: '💚', green: '💚',
+  maybe: '💙', blue: '💙',
+  orange: '🟠',
+  star: '⭐', gold: '⭐',
+  hot: '🔥', fire: '🔥', red: '🔥',
+  yellow: '🟡',
+  skip: '✖️', x: '✖️', reject: '✖️',
+};
+
+// null/'' → no rating. An emoji passes through. A known name maps to its
+// emoji. Anything else throws rather than silently storing garbage.
+function normalizeRating(value, ratings) {
+  if (value == null || value === '') return null;
+  if (ratings.includes(value)) return value;
+  const alias = RATING_ALIASES[String(value).trim().toLowerCase()];
+  if (alias) return alias;
+  throw new Error(
+    `Invalid rating: ${value}. Use one of ${ratings.join(' ')} or a name like "strong".`
+  );
+}
+
+// Uppercase + the same aliases setCountry accepts. null/'' → no country.
+function normalizeCountry(value, countries) {
+  if (value == null || value === '') return null;
+  let c = String(value).trim().toUpperCase();
+  if (c === 'GB') c = 'UK';
+  if (c === 'CAD') c = 'CA';
+  if (!countries.includes(c)) {
+    throw new Error(`Invalid country: ${value}. Valid: ${countries.join(', ')}`);
+  }
+  return c;
+}
+
 function stageStyle(s) {
   return STAGE_META[s] || STAGE_META.New;
 }
@@ -146,6 +182,11 @@ function normalizeDomainHref(domain) {
   if (!/^https?:\/\//i.test(d)) d = 'https://' + d;
   return d;
 }
+// "https://gobloomwired.com/review/renee-zaia" → "gobloomwired.com/review/renee-zaia"
+function stripProtocol(url) {
+  return String(url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
 function normalizeChatHref(url) {
   if (!url) return '#';
   let u = url.trim();
@@ -869,6 +910,7 @@ function enrichProspect(p) {
     audit_notes: p.audit_notes ?? null,
     pdf_filename: p.pdf_filename ?? null,
     info: p.info || null,
+    review_url: p.review_url || null,
     // Representative IANA timezone for the country, so the automation can
     // compute local send times without its own lookup table. null if the
     // prospect has no country set.
@@ -915,6 +957,7 @@ function makeBloomtrackApi({
   autoEmailStages,
   getAllProspects,
   updateProspectById,
+  createProspect,
   refresh,
 }) {
   function todayIso() {
@@ -964,6 +1007,36 @@ function makeBloomtrackApi({
       return computeStats(getAllProspects());
     },
 
+    // ----- Create -----
+    // Creates a prospect through the same POST the UI form uses, then pushes
+    // it into the canonical store so the table updates without a refetch.
+    // Email is required (the whole API is email-keyed) and must be unique.
+    async addProspect(data = {}) {
+      const email = String(data.email ?? '').trim();
+      if (!email) throw new Error('addProspect: email is required');
+      if (findRaw(email)) throw new Error(`Prospect already exists: ${email}`);
+
+      const country = normalizeCountry(data.country, countries);
+      // Omitting `rating` defaults to Strong; passing null explicitly clears it.
+      const rating =
+        data.rating === undefined ? '💚' : normalizeRating(data.rating, ratings);
+      const chatLink = data.chat_link ?? data.claude_chat_link ?? '';
+
+      const created = await createProspect({
+        name: data.name ?? '',
+        business_name: data.business ?? data.business_name ?? null,
+        email,
+        domain: data.domain ?? '',
+        country,
+        claude_chat_link: String(chatLink).trim() || null,
+        rating,
+        stage: 'New',
+        emails_sent: 0,
+        last_contact_date: null,
+      });
+      return enrichProspect(created);
+    },
+
     // ----- Write -----
     async setStage(email, stage) {
       if (!stages.includes(stage)) {
@@ -997,15 +1070,8 @@ function makeBloomtrackApi({
       return patchByEmail(email, { rating });
     },
     async setCountry(email, country) {
-      // Accept null/'' to clear. Uppercase + a couple of aliases so
-      // setCountry('gb') / setCountry('cad') don't surprise the caller.
-      let c = country ? String(country).trim().toUpperCase() : null;
-      if (c === 'GB') c = 'UK';
-      if (c === 'CAD') c = 'CA';
-      if (c != null && !countries.includes(c)) {
-        throw new Error(`Invalid country: ${country}. Valid: ${countries.join(', ')}`);
-      }
-      return patchByEmail(email, { country: c });
+      // Accept null/'' to clear; 'gb'/'cad' normalize like addProspect's.
+      return patchByEmail(email, { country: normalizeCountry(country, countries) });
     },
     setLastContact(email, iso) {
       return patchByEmail(email, { last_contact_date: iso || null });
@@ -1060,6 +1126,15 @@ function makeBloomtrackApi({
     getInfo(email) {
       const p = findRaw(email);
       return p?.info || null;
+    },
+
+    // ----- Review PDF (hosted on R2, served at /review/{slug}) -----
+    async setReviewUrl(email, url) {
+      return patchByEmail(email, { review_url: url || null });
+    },
+    getReviewUrl(email) {
+      const p = findRaw(email);
+      return p?.review_url || null;
     },
 
     // ----- UI -----
@@ -1353,6 +1428,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const getAllRef = useRef(() => []);
   getAllRef.current = () => allProspectsRef.current;
   const updateProspectByIdRef = useRef(async () => null);
+  const createProspectRef = useRef(async () => null);
   const refreshRef = useRef(async () => {});
   refreshRef.current = () => loadAll();
 
@@ -1365,6 +1441,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
       autoEmailStages: AUTO_EMAIL_STAGES,
       getAllProspects: () => getAllRef.current(),
       updateProspectById: (id, patch) => updateProspectByIdRef.current(id, patch),
+      createProspect: (payload) => createProspectRef.current(payload),
       refresh: () => refreshRef.current(),
     });
     if (typeof window !== 'undefined') {
@@ -1502,14 +1579,33 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
     await updateProspect(p.id, patch);
   }
 
+  // Canonical create path, shared by the quick-add form and
+  // window.bloomtrack.addProspect(). POSTs, then pushes the server's row
+  // into the store so the table updates without a refetch. Throws on
+  // failure so callers can decide how to surface it.
+  const createProspect = useCallback(async (payload) => {
+    const res = await fetch('/api/prospects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`create failed (HTTP ${res.status}) ${detail}`.trim());
+    }
+    const data = await res.json();
+    setAllProspects((prev) => [data.prospect, ...prev]);
+    return data.prospect;
+  }, []);
+
+  createProspectRef.current = createProspect;
+
   async function addProspect(e) {
     e?.preventDefault?.();
     const { name, business_name, email, domain, country, claude_chat_link } = quickAdd;
     if (!name && !business_name && !email && !domain) return;
-    const res = await fetch('/api/prospects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      const created = await createProspect({
         name,
         business_name,
         email,
@@ -1518,21 +1614,15 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         claude_chat_link: claude_chat_link.trim() || null,
         rating: '💚', // new prospects default to Strong
         stage: 'New',
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
+      });
       setQuickAdd({ name: '', business_name: '', email: '', domain: '', country: '', claude_chat_link: '' });
-      // Push directly into the canonical store — no refetch needed.
-      setAllProspects((prev) => [data.prospect, ...prev]);
-      setHighlightId(data.prospect.id);
+      setHighlightId(created.id);
       setTimeout(() => setHighlightId(null), 1800);
-    } else {
+    } catch (err) {
       // Don't fail silently — surface the server error so a broken write
       // path (e.g. a 405 from a bad deploy) is obvious instead of looking
       // like the button did nothing.
-      const detail = await res.text().catch(() => '');
-      alert(`Couldn't add prospect (HTTP ${res.status}). ${detail}`.trim());
+      alert(`Couldn't add prospect. ${err.message}`);
     }
   }
 
@@ -2526,28 +2616,50 @@ function EmailSequenceModal({ prospect, onClose }) {
             </section>
           )}
 
-          {prospect.pdf_filename && (
+          {(prospect.pdf_filename || prospect.review_url) && (
             <section>
               <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
                 Email 5 PDF
               </div>
-              <div
-                className={`inline-flex flex-col gap-1 rounded-lg px-3 py-2 border transition ${
-                  pdfIsNext ? 'border-mauve bg-blush-soft' : 'border-line bg-paper'
-                }`}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <span className="text-mauve-deep">
+
+              {prospect.pdf_filename && (
+                <div
+                  className={`inline-flex flex-col gap-1 rounded-lg px-3 py-2 border transition ${
+                    pdfIsNext ? 'border-mauve bg-blush-soft' : 'border-line bg-paper'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <span className="text-mauve-deep">
+                      <Icon name="file-text" className="w-3.5 h-3.5" />
+                    </span>
+                    <span className="text-xs font-mono text-charcoal-2">
+                      {prospect.pdf_filename}
+                    </span>
+                  </span>
+                  <span className="text-[10px] font-mono text-muted">
+                    Stored in prospect-pdfs/
+                  </span>
+                </div>
+              )}
+
+              {prospect.review_url && (
+                <div className={prospect.pdf_filename ? 'mt-2' : ''}>
+                  <a
+                    href={prospect.review_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-xs font-mono text-mauve-deep hover:underline"
+                  >
                     <Icon name="file-text" className="w-3.5 h-3.5" />
-                  </span>
-                  <span className="text-xs font-mono text-charcoal-2">
-                    {prospect.pdf_filename}
-                  </span>
-                </span>
-                <span className="text-[10px] font-mono text-muted">
-                  Stored in prospect-pdfs/
-                </span>
-              </div>
+                    View review PDF
+                    <Icon name="external-link" className="w-3 h-3 opacity-70" />
+                  </a>
+                  <div className="mt-0.5 text-[10px] font-mono text-muted break-all">
+                    {stripProtocol(prospect.review_url)}
+                  </div>
+                </div>
+              )}
+
               {pdfIsNext && (
                 <p className="mt-1.5 text-[10px] font-mono text-mauve-deep">
                   Email 5 is next — attach this.
@@ -2587,6 +2699,8 @@ function EmailSequenceModal({ prospect, onClose }) {
                       email={e}
                       sent={(e.number || 0) <= lastSent}
                       isNext={!!nextUp && e.number === nextUp.number}
+                      // Email 5 is the one that carries the review PDF.
+                      reviewUrl={e.number === 5 ? prospect.review_url : null}
                     />
                   ))}
                 </div>
@@ -2601,7 +2715,7 @@ function EmailSequenceModal({ prospect, onClose }) {
 
 // One email in the sequence. `sent` dims it and swaps in a SENT pill;
 // `isNext` gives it the mauve left-edge stripe as the one to send next.
-function EmailCard({ email, sent, isNext }) {
+function EmailCard({ email, sent, isNext, reviewUrl }) {
   return (
     <article
       className={`bg-paper border border-line rounded-xl overflow-hidden transition ${
@@ -2635,6 +2749,20 @@ function EmailCard({ email, sent, isNext }) {
         </span>
       </header>
       <pre className="px-4 py-3 text-sm text-charcoal-2 whitespace-pre-wrap font-sans leading-relaxed m-0">{email.body}</pre>
+      {reviewUrl && (
+        <div className="px-4 pb-3 -mt-1">
+          <a
+            href={reviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[11px] font-mono text-mauve-deep hover:underline break-all"
+            title={reviewUrl}
+          >
+            <Icon name="file-text" className="w-3 h-3 shrink-0" />
+            Review attached: {stripProtocol(reviewUrl)}
+          </a>
+        </div>
+      )}
     </article>
   );
 }
