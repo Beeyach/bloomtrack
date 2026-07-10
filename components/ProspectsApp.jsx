@@ -2433,6 +2433,7 @@ function InfoCell({ prospect, onOpen }) {
 // Plain-text editor for `info`. No markdown, no rich text — just a textarea.
 // Ctrl/Cmd+Enter saves, Escape cancels.
 function InfoModal({ prospect, onClose, onSave }) {
+  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(prospect.info || '');
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef(null);
@@ -2441,17 +2442,17 @@ function InfoModal({ prospect, onClose, onSave }) {
     prospect.name || prospect.business_name || prospect.domain || prospect.email || 'Prospect';
 
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+    if (editing) textareaRef.current?.focus();
+  }, [editing]);
 
   async function handleSave() {
     if (saving) return;
     setSaving(true);
     try {
       await onSave(prospect.id, text);
-      onClose();
+      setEditing(false);
+      setSaving(false);
     } catch {
-      // updateProspect already surfaced the error and rolled the store back.
       setSaving(false);
     }
   }
@@ -2459,8 +2460,13 @@ function InfoModal({ prospect, onClose, onSave }) {
   function onKeyDown(e) {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      onClose();
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (editing) {
+        setText(prospect.info || '');
+        setEditing(false);
+      } else {
+        onClose();
+      }
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && editing) {
       e.preventDefault();
       handleSave();
     }
@@ -2469,14 +2475,14 @@ function InfoModal({ prospect, onClose, onSave }) {
   return (
     <div
       className="fixed inset-0 bg-charcoal/40 backdrop-blur-sm flex items-center justify-center z-50 px-4 py-10"
-      onClick={onClose}
+      onClick={() => { if (!editing) onClose(); }}
     >
       <div
-        className="bg-surface border border-line rounded-2xl shadow-card w-full max-w-lg"
+        className="bg-surface border border-line rounded-2xl shadow-card w-full max-w-lg max-h-full overflow-y-auto bw-scroll"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
       >
-        <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 border-b border-line">
+        <div className="sticky top-0 bg-surface px-6 pt-5 pb-3 flex items-start justify-between gap-4 border-b border-line">
           <div>
             <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-1">
               Info
@@ -2503,34 +2509,57 @@ function InfoModal({ prospect, onClose, onSave }) {
               </div>
             </section>
           )}
-          <section>
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-2">
-              Notes
-            </div>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Niche, location, services, key findings from the audit…"
-              className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-paper border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed placeholder:text-muted/70 focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
-            />
-            <p className="mt-2 text-[10px] font-mono text-muted">
-              Ctrl/Cmd + Enter to save · Esc to cancel
-            </p>
-          </section>
-        </div>
 
-        <div className="px-6 pb-5 flex items-center justify-end gap-4">
-          <button onClick={onClose} className="text-muted text-sm hover:text-charcoal transition">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="bg-mauve-deep text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+          <section>
+            <div className="flex items-baseline justify-between gap-3 mb-2">
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted">
+                Notes
+              </div>
+              {!editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-[0.14em] text-muted hover:text-mauve-deep transition"
+                >
+                  <Icon name="pencil" className="w-3 h-3" />
+                  Edit
+                </button>
+              )}
+            </div>
+
+            {editing ? (
+              <>
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Niche, location, services, key findings…"
+                  className="w-full min-h-[200px] px-3 py-2.5 text-sm text-charcoal bg-paper border border-line rounded-lg outline-none resize-y whitespace-pre-wrap leading-relaxed placeholder:text-muted/70 focus:border-mauve-deep focus:ring-1 focus:ring-mauve-deep/30 transition"
+                />
+                <p className="mt-2 text-[10px] font-mono text-muted">
+                  Ctrl/Cmd + Enter to save · Esc to cancel
+                </p>
+                <div className="mt-3 flex items-center justify-end gap-4">
+                  <button
+                    onClick={() => { setText(prospect.info || ''); setEditing(false); }}
+                    className="text-muted text-sm hover:text-charcoal transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="bg-mauve-deep text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="bg-paper border border-line rounded-xl p-4 text-sm text-charcoal-2 whitespace-pre-wrap leading-relaxed min-h-[60px]">
+                {prospect.info || <span className="text-muted italic">No notes yet.</span>}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>
