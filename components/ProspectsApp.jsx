@@ -15,6 +15,7 @@ const COLUMNS = [
   { key: 'last_contact_date', label: 'Last Contact' },
   { key: 'email_sequence',    label: 'Seq' },
   { key: 'info',              label: 'Info' },
+  { key: 'claude_chat_link',  label: 'Chat' },
 ];
 
 // Countries you email, keyed by the short code stored in the DB. `flag` is
@@ -44,6 +45,7 @@ const COL_DEFAULTS = {
   last_contact_date: 120,
   email_sequence: 60,
   info: 54,
+  claude_chat_link: 60,
   __delete: 40,
 };
 const COL_MIN_WIDTH = 36;
@@ -182,6 +184,13 @@ function normalizeDomainHref(domain) {
 // "https://gobloomwired.com/review/renee-zaia" → "gobloomwired.com/review/renee-zaia"
 function stripProtocol(url) {
   return String(url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
+function normalizeChatHref(url) {
+  if (!url) return '#';
+  let u = url.trim();
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -2187,6 +2196,12 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                       <td className="px-2 py-1 align-top">
                         <InfoCell prospect={p} onOpen={() => setInfoModal(p)} />
                       </td>
+                      <td className="px-2 py-1 align-top">
+                        <ChatCell
+                          value={p.claude_chat_link}
+                          onSave={(v) => updateProspect(p.id, { claude_chat_link: v })}
+                        />
+                      </td>
                       <td className="px-2 py-1 align-top text-right">
                         <button
                           onClick={() => requestDelete(p.id)}
@@ -3418,6 +3433,81 @@ function RatingCell({ value, options, onChange }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ChatCell({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? '');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value ?? '');
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      try { inputRef.current?.select(); } catch {}
+    }
+  }, [editing]);
+
+  function commit() {
+    setEditing(false);
+    const next = draft.trim() === '' ? null : draft.trim();
+    if ((value ?? null) !== next) onSave(next);
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
+        }}
+        className="cell-input text-sm"
+        placeholder="Paste chat URL"
+      />
+    );
+  }
+
+  if (!value) {
+    return (
+      <span
+        className="cell-display text-sm text-muted/60 cursor-pointer"
+        onClick={() => setEditing(true)}
+        title="Click to add chat URL"
+      >
+        —
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <a
+        href={normalizeChatHref(value)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-mauve-deep hover:bg-blush-soft transition"
+        onClick={(e) => e.stopPropagation()}
+        title={value}
+      >
+        <Icon name="link" className="w-3.5 h-3.5" />
+      </a>
+      <button
+        onClick={() => setEditing(true)}
+        className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-mauve-deep opacity-0 group-hover:opacity-100 transition"
+        title="Edit"
+      >
+        <Icon name="pencil" className="w-3 h-3" />
+      </button>
     </div>
   );
 }
