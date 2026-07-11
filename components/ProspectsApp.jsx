@@ -792,15 +792,21 @@ const AUTO_EMAIL_STAGES = new Set([
 // old date.
 const STAMP_ONLY_STAGES = new Set(['Snoozed', 'Re-warm']);
 
-// Per-stage "due" cadence — how many days of silence before the row
-// should surface as "time to send the next email". Email 5 is NOT here:
-// after 7 days on Email 5 we auto-transition to 'Finished' instead of
-// resurfacing as due (see FINISHED_AFTER_DAYS below).
+// The send schedule you actually run: Email N goes out on this day of the
+// sequence (day 1 = the very first email). This is the single source of
+// truth for both the Due cadence and the "Email N — Day X" labels, so they
+// can never drift apart. Cadence: 1 · 3 · 7 · 14 · 21.
+const EMAIL_SEND_DAYS = { 1: 1, 2: 3, 3: 7, 4: 14, 5: 21 };
+
+// Per-stage "due" cadence — days of silence before the row surfaces as
+// "time to send the next email", i.e. the gap between consecutive send
+// days (2, 4, 7, 7). Email 5 is NOT here: after it, the row auto-transitions
+// to 'Finished' instead of resurfacing as due (see FINISHED_AFTER_DAYS).
 const DUE_DAYS_BY_STAGE = {
-  'Email 1': 3,  // → send Email 2 after 3 days of silence
-  'Email 2': 5,  // → send Email 3 after 5 days
-  'Email 3': 7,  // → send Email 4 after 7 days
-  'Email 4': 7,  // → send Email 5 after 7 days
+  'Email 1': EMAIL_SEND_DAYS[2] - EMAIL_SEND_DAYS[1], // 2 → Email 2 on day 3
+  'Email 2': EMAIL_SEND_DAYS[3] - EMAIL_SEND_DAYS[2], // 4 → Email 3 on day 7
+  'Email 3': EMAIL_SEND_DAYS[4] - EMAIL_SEND_DAYS[3], // 7 → Email 4 on day 14
+  'Email 4': EMAIL_SEND_DAYS[5] - EMAIL_SEND_DAYS[4], // 7 → Email 5 on day 21
   'Snoozed': 30, // → "come back later" leads resurface ~1 month after snoozing
   'Re-warm': 60, // → interested-then-quiet leads resurface ~2 months later
 };
@@ -864,12 +870,10 @@ function computeStats(prospects) {
   };
 }
 
-// Day the Nth email goes out, counting from Email 1 = Day 0. Derived from the
-// Due cadence so the two can't drift: 0, 3, 8, 15, 22.
+// Day the Nth email goes out in the sequence (1, 3, 7, 14, 21). Reads the
+// EMAIL_SEND_DAYS schedule directly. 0 for anything off-schedule.
 function emailDayOffset(number) {
-  let day = 0;
-  for (let n = 1; n < (number || 1); n++) day += DUE_DAYS_BY_STAGE[`Email ${n}`] ?? 0;
-  return day;
+  return EMAIL_SEND_DAYS[number] ?? 0;
 }
 
 // "Email 2 — Day 3". Honors an explicit `day` on the stored email if present.
@@ -1925,7 +1929,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                   ? 'bg-mauve-deep text-white'
                   : 'text-charcoal-2 hover:bg-blush-soft'
               }`}
-              title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (Email 1→3d, Email 2→5d, Email 3-4→7d, Snoozed→30d, Re-warm→60d)'}
+              title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (send days 1·3·7·14·21 → Email 1 due after 2d, Email 2 after 4d, Email 3-4 after 7d; Snoozed 30d, Re-warm 60d)'}
             >
               <Icon name="bell" className="w-3.5 h-3.5" />
               <span>Due</span>
