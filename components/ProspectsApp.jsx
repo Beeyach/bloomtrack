@@ -86,6 +86,7 @@ const STAGE_META = {
   'Payment Awaiting': { icon: 'clock',   bg: '#FBE6A8',    border: '#9C7E0F' },
   Finished:   { icon: 'moon',           bg: '#D9D1D9',     border: '#6E6577', faded: true },
   Rejected:   { icon: 'ban',            bg: '#EED0CC',     border: '#A34A38', faded: true },
+  'Invalid Email': { icon: 'mail-x',    bg: '#E6D6D2',     border: '#8A6A62', faded: true },
   Lost:       { icon: 'x-circle',       bg: '#D6CCBD',     border: '#7A6E5E', faded: true },
 };
 
@@ -290,6 +291,14 @@ function Icon({ name, className = 'w-4 h-4', strokeWidth = 2, filled = false }) 
         <svg {...common}>
           <rect width="20" height="16" x="2" y="4" rx="2" />
           <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+      );
+    case 'mail-x':
+      return (
+        <svg {...common}>
+          <path d="M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h8" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          <path d="m17 17 5 5M22 17l-5 5" />
         </svg>
       );
     case 'x-circle':
