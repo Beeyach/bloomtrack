@@ -95,25 +95,23 @@ const STAGE_META = {
 // `filled` makes the icon render as a solid colored badge instead of an
 // outline — way easier to scan as a "rating chip". `x-circle` stays
 // outlined since filling it would hide its internal X mark.
+// Only 💚/💙/✖️ are in the picker (see RATINGS). The other four stay in this
+// lookup so any legacy value still renders, but they're no longer selectable.
 const RATING_META = {
-  '💚': { icon: 'heart',      filled: true,  color: '#3D8030', bg: '#D2E7BD', label: 'Green' },
-  '💙': { icon: 'heart',      filled: true,  color: '#3A6A8B', bg: '#C6D9EA', label: 'Blue' },
+  '💚': { icon: 'heart',      filled: true,  color: '#3D8030', bg: '#D2E7BD', label: 'Strong' },
+  '💙': { icon: 'heart',      filled: true,  color: '#3A6A8B', bg: '#C6D9EA', label: 'Client' },
+  '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
   '🟠': { icon: 'circle-dot', filled: true,  color: '#B86A2A', bg: '#FBCEA3', label: 'Orange' },
   '⭐':  { icon: 'star',       filled: true,  color: '#9C8425', bg: '#F2DF92', label: 'Star' },
   '🔥': { icon: 'flame',      filled: true,  color: '#B23A28', bg: '#FBC4B7', label: 'Hot' },
   '🟡': { icon: 'circle-dot', filled: true,  color: '#A39024', bg: '#F4E8A0', label: 'Yellow' },
-  '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
 };
 
 // Ratings are stored as emoji, which are awkward to type from automation.
 // Accept friendly names too — `rating: 'strong'` is nicer than `'💚'`.
 const RATING_ALIASES = {
   strong: '💚', green: '💚',
-  maybe: '💙', blue: '💙',
-  orange: '🟠',
-  star: '⭐', gold: '⭐',
-  hot: '🔥', fire: '🔥', red: '🔥',
-  yellow: '🟡',
+  client: '💙', won: '💙', blue: '💙',
   skip: '✖️', x: '✖️', reject: '✖️',
 };
 
@@ -829,6 +827,12 @@ const FINISHED_FROM_STAGE = 'Email 5';
 
 function isDueProspect(p) {
   if (!p) return false;
+  // An explicit next-action date wins over the stage window: due once today
+  // has reached it. daysBetween(next_action_date) >= 0 means today ≥ that date.
+  if (p.next_action_date) {
+    const nd = daysBetween(p.next_action_date);
+    return nd != null && nd >= 0;
+  }
   const threshold = DUE_DAYS_BY_STAGE[p.stage];
   if (threshold == null) return false;
   const d = daysBetween(p.last_contact_date);
@@ -944,6 +948,12 @@ function enrichProspect(p) {
     pdf_filename: p.pdf_filename ?? null,
     info: p.info || null,
     review_url: p.review_url || null,
+    replied: p.replied ? 1 : 0,
+    reply_date: p.reply_date ?? null,
+    reply_type: p.reply_type ?? null,
+    replied_at_email: p.replied_at_email ?? null,
+    next_action_date: p.next_action_date ?? null,
+    source: p.source ?? null,
     // Representative IANA timezone for the country, so the automation can
     // compute local send times without its own lookup table. null if the
     // prospect has no country set.
@@ -987,6 +997,8 @@ function makeBloomtrackApi({
   stages,
   ratings,
   countries,
+  sources,
+  replyTypes,
   autoEmailStages,
   getAllProspects,
   updateProspectById,
@@ -1195,6 +1207,52 @@ function makeBloomtrackApi({
       return p?.review_url || null;
     },
 
+    // ----- Reply tracking / next action / source -----
+    // A reply is an attribute of the lead, independent of stage. Marking a
+    // reply stamps reply_date (today, unless already set) and captures the
+    // email number they were on, so "replies by email" can be reported.
+    async setReplied(email, bool) {
+      const p = findRaw(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      if (bool) {
+        return patchByEmail(email, {
+          replied: 1,
+          reply_date: p.reply_date || todayIso(),
+          replied_at_email: p.replied_at_email ?? getLastSentNumber(p),
+        });
+      }
+      return patchByEmail(email, { replied: 0 });
+    },
+    // Setting a type implies replied=true; null clears the reply.
+    async setReplyType(email, type) {
+      if (type != null && !replyTypes.includes(type)) {
+        throw new Error(`Invalid reply_type: ${type}. Valid: ${replyTypes.join(', ')}`);
+      }
+      const p = findRaw(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      if (type == null) {
+        return patchByEmail(email, { reply_type: null, replied: 0 });
+      }
+      return patchByEmail(email, {
+        reply_type: type,
+        replied: 1,
+        reply_date: p.reply_date || todayIso(),
+        replied_at_email: p.replied_at_email ?? getLastSentNumber(p),
+      });
+    },
+    async setReplyDate(email, date) {
+      return patchByEmail(email, { reply_date: date || null });
+    },
+    async setNextActionDate(email, date) {
+      return patchByEmail(email, { next_action_date: date || null });
+    },
+    async setSource(email, source) {
+      if (source != null && source !== '' && !sources.includes(source)) {
+        throw new Error(`Invalid source: ${source}. Valid: ${sources.join(', ')}`);
+      }
+      return patchByEmail(email, { source: source || null });
+    },
+
     // ----- UI -----
     refresh,
 
@@ -1202,6 +1260,8 @@ function makeBloomtrackApi({
     stages: [...stages],
     ratings: [...ratings],
     countries: [...countries],
+    sources: [...sources],
+    replyTypes: [...replyTypes],
     // code → IANA timezone, so the automation can time sends per prospect.
     COUNTRY_TIMEZONES: Object.fromEntries(
       Object.entries(COUNTRY_META).map(([code, m]) => [code, m.tz])
@@ -1213,7 +1273,7 @@ function makeBloomtrackApi({
   };
 }
 
-export default function ProspectsApp({ stages, ratings, countries = [] }) {
+export default function ProspectsApp({ stages, ratings, countries = [], sources = [], replyTypes = [] }) {
   // ─── Canonical store ───────────────────────────────────────────────────
   // `allProspects` is the single source of truth. The table renders from a
   // memoized filtered/sorted projection of this array. Writes patch this
@@ -1496,6 +1556,8 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
       stages,
       ratings,
       countries,
+      sources,
+      replyTypes,
       autoEmailStages: AUTO_EMAIL_STAGES,
       getAllProspects: () => getAllRef.current(),
       updateProspectById: (id, patch) => updateProspectByIdRef.current(id, patch),
@@ -1515,7 +1577,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         delete window.bloomtrack;
       }
     };
-  }, [stages, ratings, countries]);
+  }, [stages, ratings, countries, sources, replyTypes]);
 
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +

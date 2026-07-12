@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, STAGES, RATINGS, COUNTRIES } from '@/lib/db';
+import { getDb, STAGES, RATINGS, COUNTRIES, SOURCES, REPLY_TYPES } from '@/lib/db';
 
 export const runtime = 'edge';
 // Force-dynamic so PUT/DELETE survive the next-on-pages build as a real
@@ -25,10 +25,16 @@ const ALLOWED_FIELDS = [
   'pdf_filename',
   'info',
   'review_url',
+  'replied',
+  'reply_date',
+  'reply_type',
+  'replied_at_email',
+  'next_action_date',
+  'source',
 ];
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, replied, reply_date, reply_type, replied_at_email, next_action_date, source, created_at, updated_at';
 
 export async function PUT(req, { params }) {
   const { id } = await params;
@@ -50,8 +56,14 @@ export async function PUT(req, { params }) {
       if (key === 'country' && body.country != null && body.country !== '' && !COUNTRIES.includes(body.country)) {
         return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
       }
+      if (key === 'source' && body.source != null && body.source !== '' && !SOURCES.includes(body.source)) {
+        return NextResponse.json({ error: 'Invalid source' }, { status: 400 });
+      }
+      if (key === 'reply_type' && body.reply_type != null && body.reply_type !== '' && !REPLY_TYPES.includes(body.reply_type)) {
+        return NextResponse.json({ error: 'Invalid reply_type' }, { status: 400 });
+      }
       updates.push(`${key} = ?`);
-      if (key === 'is_read') {
+      if (key === 'is_read' || key === 'replied') {
         values.push(body[key] ? 1 : 0);
       } else {
         values.push(body[key] === '' ? null : body[key]);
