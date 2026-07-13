@@ -158,6 +158,12 @@ function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+// ISO date `days` from today (negative = past). isoShift(0) === todayIso().
+function isoShift(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function daysBetween(dateStr) {
   if (!dateStr) return null;
   const t = Date.parse(dateStr);
@@ -1044,19 +1050,25 @@ const DEFAULT_DUE_STAGES = Object.keys(DUE_DAYS_BY_STAGE);
 const FINISHED_AFTER_DAYS = 8;
 const FINISHED_FROM_STAGE = 'Email 5';
 
-function isDueProspect(p) {
-  if (!p) return false;
-  // An explicit next-action date wins over the stage window: due once today
-  // has reached it. daysBetween(next_action_date) >= 0 means today ≥ that date.
+// Days until this lead is due for its next touch: 0 = due today, negative =
+// overdue, positive = due in N days, null = not on a due schedule.
+// An explicit next_action_date wins; otherwise the stage window applies.
+function daysUntilDue(p) {
+  if (!p) return null;
   if (p.next_action_date) {
-    const nd = daysBetween(p.next_action_date);
-    return nd != null && nd >= 0;
+    const nd = daysBetween(p.next_action_date); // today − next_action_date
+    return nd == null ? null : -nd;             // due when today ≥ that date
   }
   const threshold = DUE_DAYS_BY_STAGE[p.stage];
-  if (threshold == null) return false;
-  const d = daysBetween(p.last_contact_date);
-  if (d == null) return false;
-  return d >= threshold;
+  if (threshold == null) return null;
+  const age = daysBetween(p.last_contact_date);
+  if (age == null) return null;
+  return threshold - age;
+}
+
+function isDueProspect(p) {
+  const d = daysUntilDue(p);
+  return d != null && d <= 0;
 }
 
 // Build the patch for setting/clearing a reply from the UI. Mirrors
@@ -1808,6 +1820,24 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
     [allProspects]
   );
 
+  // Send cadence at a glance: sent today / yesterday (by last_contact_date),
+  // and due today / tomorrow (by daysUntilDue).
+  const sendStats = useMemo(() => {
+    const today = todayIso();
+    const yesterday = isoShift(-1);
+    let sentToday = 0, sentYesterday = 0, dueToday = 0, dueTomorrow = 0;
+    for (const p of allProspects) {
+      if (p.last_contact_date === today) sentToday++;
+      else if (p.last_contact_date === yesterday) sentYesterday++;
+      const d = daysUntilDue(p);
+      if (d != null) {
+        if (d <= 0) dueToday++;
+        else if (d === 1) dueTomorrow++;
+      }
+    }
+    return { sentToday, sentYesterday, dueToday, dueTomorrow };
+  }, [allProspects]);
+
   // ─── Bridge to window.bloomtrack ───────────────────────────────────────
   // Refs let us hand the API stable closures over the live store + write
   // path without recreating the API on every render.
@@ -2331,6 +2361,14 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
         </section>
       ) : (
         <>
+          {/* Cadence strip — how the send pace is tracking day to day. */}
+          <div className="mb-3 flex flex-wrap gap-2">
+            <CadenceStat label="Sent today" value={sendStats.sentToday} />
+            <CadenceStat label="Sent yesterday" value={sendStats.sentYesterday} muted />
+            <CadenceStat label="Due today" value={sendStats.dueToday} accent />
+            <CadenceStat label="Due tomorrow" value={sendStats.dueTomorrow} />
+          </div>
+
           {/* Quick-add lives as a separate card above the table so it
               reads like an intentional "new entry" affordance rather
               than a header row of the table. */}
@@ -3525,6 +3563,26 @@ function StatsView({ prospects, stages, onShowMissingCountry }) {
         fields, so they fill in as you log replies. Conversion = Clients ÷
         reached out.
       </p>
+    </div>
+  );
+}
+
+// Compact inline stat for the cadence strip above the table.
+function CadenceStat({ label, value, accent, muted }) {
+  return (
+    <div
+      className={`inline-flex items-baseline gap-2 rounded-xl border px-3 py-1.5 bg-surface shadow-card ${
+        accent ? 'border-mauve' : 'border-line'
+      }`}
+    >
+      <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">{label}</span>
+      <span
+        className={`font-mono num-tabular text-lg ${
+          accent ? 'text-mauve-deep' : muted ? 'text-muted' : 'text-charcoal'
+        }`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
