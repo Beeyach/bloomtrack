@@ -9,10 +9,13 @@ const COLUMNS = [
   { key: 'email',             label: 'Email' },
   { key: 'domain',            label: 'Domain' },
   { key: 'country',           label: 'Country' },
+  { key: 'source',            label: 'Source' },
   { key: 'rating',            label: 'Rating' },
   { key: 'stage',             label: 'Stage' },
+  { key: 'replied',           label: 'Reply' },
   { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
+  { key: 'next_action_date',  label: 'Next Action' },
   { key: 'email_sequence',    label: 'Seq' },
   { key: 'info',              label: 'Info' },
   { key: 'claude_chat_link',  label: 'Chat' },
@@ -39,10 +42,13 @@ const COL_DEFAULTS = {
   email: 220,
   domain: 180,
   country: 84,
+  source: 110,
   rating: 70,
   stage: 150,
+  replied: 64,
   days_ago: 80,
   last_contact_date: 120,
+  next_action_date: 120,
   email_sequence: 60,
   info: 54,
   claude_chat_link: 60,
@@ -95,25 +101,23 @@ const STAGE_META = {
 // `filled` makes the icon render as a solid colored badge instead of an
 // outline — way easier to scan as a "rating chip". `x-circle` stays
 // outlined since filling it would hide its internal X mark.
+// Only 💚/💙/✖️ are in the picker (see RATINGS). The other four stay in this
+// lookup so any legacy value still renders, but they're no longer selectable.
 const RATING_META = {
-  '💚': { icon: 'heart',      filled: true,  color: '#3D8030', bg: '#D2E7BD', label: 'Green' },
-  '💙': { icon: 'heart',      filled: true,  color: '#3A6A8B', bg: '#C6D9EA', label: 'Blue' },
+  '💚': { icon: 'heart',      filled: true,  color: '#3D8030', bg: '#D2E7BD', label: 'Strong' },
+  '💙': { icon: 'heart',      filled: true,  color: '#3A6A8B', bg: '#C6D9EA', label: 'Client' },
+  '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
   '🟠': { icon: 'circle-dot', filled: true,  color: '#B86A2A', bg: '#FBCEA3', label: 'Orange' },
   '⭐':  { icon: 'star',       filled: true,  color: '#9C8425', bg: '#F2DF92', label: 'Star' },
   '🔥': { icon: 'flame',      filled: true,  color: '#B23A28', bg: '#FBC4B7', label: 'Hot' },
   '🟡': { icon: 'circle-dot', filled: true,  color: '#A39024', bg: '#F4E8A0', label: 'Yellow' },
-  '✖️': { icon: 'x-circle',   filled: false, color: '#7A6E5E', bg: '#D6CCBD', label: 'Skip' },
 };
 
 // Ratings are stored as emoji, which are awkward to type from automation.
 // Accept friendly names too — `rating: 'strong'` is nicer than `'💚'`.
 const RATING_ALIASES = {
   strong: '💚', green: '💚',
-  maybe: '💙', blue: '💙',
-  orange: '🟠',
-  star: '⭐', gold: '⭐',
-  hot: '🔥', fire: '🔥', red: '🔥',
-  yellow: '🟡',
+  client: '💙', won: '💙', blue: '💙',
   skip: '✖️', x: '✖️', reject: '✖️',
 };
 
@@ -152,6 +156,12 @@ function stageLabel(s) {
 }
 function todayIso() {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// ISO date `days` from today (negative = past). isoShift(0) === todayIso().
+function isoShift(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function daysBetween(dateStr) {
@@ -733,13 +743,19 @@ function CountryPicker({ value, options, onChange }) {
         ref={btnRef}
         type="button"
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-sm"
-        title={meta ? `${meta.label} · ${meta.tz}` : 'Set country'}
+        className={`inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border hover:bg-blush-soft transition text-sm ${
+          meta ? 'border-line' : 'border-amber-400/60 bg-amber-50/40'
+        }`}
+        title={meta ? `${meta.label} · ${meta.tz}` : 'No country set — breaks the follow-up sweep. Click to set.'}
       >
         {meta ? (
           <span className="text-xs font-mono font-semibold text-charcoal">{value}</span>
         ) : (
-          <span className="text-xs text-muted/60">—</span>
+          <>
+            {/* Amber dot: missing country breaks the follow-up sweeps. */}
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+            <span className="text-xs text-muted/70">—</span>
+          </>
         )}
         <Icon name="chevron-down" className="w-3 h-3 opacity-50" />
       </button>
@@ -789,6 +805,214 @@ function CountryPicker({ value, options, onChange }) {
   );
 }
 
+// Small generic portal dropdown, positioned off the trigger's rect and flipped
+// up when there's no room below — same anti-clip machinery as CountryPicker.
+// `renderTrigger(open)` draws the button; `children` is the menu content.
+function PortalMenu({ width = 176, renderTrigger, children }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const MAX_H = Math.round(typeof window !== 'undefined' ? window.innerHeight * 0.5 : 320);
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < Math.min(MAX_H, 240) && rect.top > spaceBelow;
+    const left = Math.min(rect.left, window.innerWidth - width - 8);
+    setPos(openUp
+      ? { left, bottom: window.innerHeight - rect.top + 6, maxHeight: rect.top - 16 }
+      : { left, top: rect.bottom + 6, maxHeight: spaceBelow - 16 });
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e) {
+      if (wrapRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+    function onScroll(e) { if (!popRef.current?.contains(e.target)) setOpen(false); }
+    function onResize() { setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <span ref={btnRef} onClick={() => (open ? setOpen(false) : openMenu())}>
+        {renderTrigger(open)}
+      </span>
+      {open && pos && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="fixed z-50 bg-surface border border-line rounded-xl shadow-card p-1.5 overflow-y-auto bw-scroll"
+            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width, maxHeight: Math.max(120, Math.min(pos.maxHeight, MAX_H)) }}
+          >
+            {children(() => setOpen(false))}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+// Where the lead came from. Compact chip that opens a labelled list.
+function SourcePicker({ value, options, onChange }) {
+  return (
+    <PortalMenu
+      width={168}
+      renderTrigger={() => (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-xs max-w-full"
+          title={value || 'Set source'}
+        >
+          <span className={`truncate ${value ? 'text-charcoal' : 'text-muted/60'}`}>
+            {value || '—'}
+          </span>
+          <Icon name="chevron-down" className="w-3 h-3 opacity-50 shrink-0" />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <button
+            onClick={() => { close(); if (value != null) onChange(null); }}
+            className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${!value ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
+          >
+            <span className="text-muted">None</span>
+          </button>
+          {options.map((s) => (
+            <button
+              key={s}
+              onClick={() => { close(); if (s !== value) onChange(s); }}
+              className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${s === value ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
+            >
+              {s}
+            </button>
+          ))}
+        </>
+      )}
+    </PortalMenu>
+  );
+}
+
+// Reply indicator + setter. A colored dot when replied (by reply_type),
+// a faint outline when not. Opens a picker for the three dispositions.
+function RepliedCell({ prospect, replyTypes, onSet }) {
+  const type = prospect.reply_type || null;
+  const m = type ? REPLY_TYPE_META[type] : null;
+  const title = m
+    ? `${m.label}${prospect.reply_date ? ` · ${prospect.reply_date}` : ''}`
+    : 'No reply logged';
+
+  return (
+    <PortalMenu
+      width={160}
+      renderTrigger={() => (
+        <button
+          type="button"
+          className="inline-flex items-center justify-center w-6 h-6 rounded-full border transition hover:brightness-95"
+          style={m
+            ? { backgroundColor: m.bg, borderColor: m.color }
+            : { backgroundColor: 'transparent', borderColor: '#E4DAD0', borderStyle: 'dashed' }}
+          title={title}
+        >
+          {m
+            ? <span className="w-2 h-2 rounded-full" style={{ backgroundColor: m.color }} />
+            : <span className="text-[10px] text-muted/50">—</span>}
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <button
+            onClick={() => { close(); if (type != null) onSet(null); }}
+            className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${!type ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
+          >
+            <span className="text-muted">No reply</span>
+          </button>
+          {replyTypes.map((t) => {
+            const tm = REPLY_TYPE_META[t] || {};
+            return (
+              <button
+                key={t}
+                onClick={() => { close(); if (t !== type) onSet(t); }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition ${t === type ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: tm.color }} />
+                {tm.label || t}
+              </button>
+            );
+          })}
+        </>
+      )}
+    </PortalMenu>
+  );
+}
+
+// Editable next-action date. Cell tints amber when the date is today or past
+// (overdue), so the daily worklist jumps out.
+function NextActionCell({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? '');
+  const inputRef = useRef(null);
+
+  useEffect(() => { if (!editing) setDraft(value ?? ''); }, [value, editing]);
+  useEffect(() => {
+    if (editing) { inputRef.current?.focus(); try { inputRef.current?.showPicker?.(); } catch {} }
+  }, [editing]);
+
+  function commit() {
+    setEditing(false);
+    const next = draft === '' ? null : draft;
+    if ((value ?? null) !== next) onSave(next);
+  }
+
+  const n = daysBetween(value);
+  const overdue = n != null && n >= 0; // today or past
+
+  return (
+    <td
+      data-tab="1"
+      className={`px-2 py-1 align-top ${overdue ? 'bg-amber-100/60' : ''}`}
+      onClick={() => !editing && setEditing(true)}
+    >
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="date"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
+          }}
+          className="cell-input text-sm"
+        />
+      ) : (
+        <span className={`cell-display text-sm ${overdue ? 'font-semibold text-amber-800' : ''}`}>
+          {value || <span className="text-muted/60">—</span>}
+        </span>
+      )}
+    </td>
+  );
+}
+
 // Stages that imply an email just went out — bumps emails_sent + last_contact_date.
 const AUTO_EMAIL_STAGES = new Set([
   'Email 1', 'Email 2', 'Email 3', 'Email 4', 'Email 5',
@@ -799,7 +1023,7 @@ const AUTO_EMAIL_STAGES = new Set([
 // emails_sent. Snoozing / re-warming isn't an email — but we stamp today
 // so the come-back countdown starts from when you parked it, not from an
 // old date.
-const STAMP_ONLY_STAGES = new Set(['Snoozed', 'Re-warm']);
+const STAMP_ONLY_STAGES = new Set(['Snoozed']);
 
 // The send schedule you actually run: Email N goes out on this day of the
 // sequence (day 1 = the very first email). This is the single source of
@@ -817,7 +1041,6 @@ const DUE_DAYS_BY_STAGE = {
   'Email 3': EMAIL_SEND_DAYS[4] - EMAIL_SEND_DAYS[3], // 7 → Email 4 on day 14
   'Email 4': EMAIL_SEND_DAYS[5] - EMAIL_SEND_DAYS[4], // 7 → Email 5 on day 21
   'Snoozed': 30, // → "come back later" leads resurface ~1 month after snoozing
-  'Re-warm': 60, // → interested-then-quiet leads resurface ~2 months later
 };
 const DEFAULT_DUE_STAGES = Object.keys(DUE_DAYS_BY_STAGE);
 
@@ -827,14 +1050,46 @@ const DEFAULT_DUE_STAGES = Object.keys(DUE_DAYS_BY_STAGE);
 const FINISHED_AFTER_DAYS = 8;
 const FINISHED_FROM_STAGE = 'Email 5';
 
-function isDueProspect(p) {
-  if (!p) return false;
+// Days until this lead is due for its next touch: 0 = due today, negative =
+// overdue, positive = due in N days, null = not on a due schedule.
+// An explicit next_action_date wins; otherwise the stage window applies.
+function daysUntilDue(p) {
+  if (!p) return null;
+  if (p.next_action_date) {
+    const nd = daysBetween(p.next_action_date); // today − next_action_date
+    return nd == null ? null : -nd;             // due when today ≥ that date
+  }
   const threshold = DUE_DAYS_BY_STAGE[p.stage];
-  if (threshold == null) return false;
-  const d = daysBetween(p.last_contact_date);
-  if (d == null) return false;
-  return d >= threshold;
+  if (threshold == null) return null;
+  const age = daysBetween(p.last_contact_date);
+  if (age == null) return null;
+  return threshold - age;
 }
+
+function isDueProspect(p) {
+  const d = daysUntilDue(p);
+  return d != null && d <= 0;
+}
+
+// Build the patch for setting/clearing a reply from the UI. Mirrors
+// window.bloomtrack.setReplyType: a type implies replied=1 and stamps the
+// reply date + the email number they were on; null clears the reply.
+function replyPatch(p, type) {
+  if (type == null) return { reply_type: null, replied: 0 };
+  return {
+    reply_type: type,
+    replied: 1,
+    reply_date: p.reply_date || todayIso(),
+    replied_at_email: p.replied_at_email ?? getLastSentNumber(p),
+  };
+}
+
+// Reply-type visual language, shared by the row dot and the Stats breakdown.
+const REPLY_TYPE_META = {
+  interested: { label: 'Interested', color: '#3D8030', bg: '#D2E7BD' },
+  defer:      { label: 'Defer',      color: '#9C7E0F', bg: '#FBE6A8' },
+  decline:    { label: 'Decline',    color: '#A34A38', bg: '#EED0CC' },
+};
 
 // ── Stats categories ───────────────────────────────────────────────────
 // "Responded" = the prospect actually replied in some form: said yes
@@ -843,8 +1098,7 @@ function isDueProspect(p) {
 // does NOT count. Re-warm (was interested, then went quiet) doesn't count —
 // no confirmed current reply. Nudge/Potential are our own assessments.
 const RESPONDED_STAGES = new Set([
-  'Replied', 'Setup Check', 'Interested', 'Booked', 'Client', 'Payment Awaiting',
-  'Rejected', 'Snoozed',
+  'Setup Check', 'Interested', 'Client', 'Rejected', 'Snoozed',
 ]);
 // Pure, synchronous rollup over the canonical prospect list. Used by both
 // the Stats tab and window.bloomtrack.getStats(). Every count maps to
@@ -852,8 +1106,12 @@ const RESPONDED_STAGES = new Set([
 // match what you see in the pipeline.
 function computeStats(prospects) {
   const byStage = {};
+  const replyByType = { interested: 0, defer: 0, decline: 0 };
+  const repliesByEmail = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let responded = 0, booked = 0, interested = 0, newCount = 0,
-    rejected = 0, lost = 0, clients = 0, paymentAwaiting = 0;
+    rejected = 0, lost = 0, clients = 0, paymentAwaiting = 0,
+    dueNow = 0, missingCountry = 0, snoozed = 0, snoozedDueThisWeek = 0,
+    repliedCount = 0, emailsAtReplySum = 0, emailsAtReplyN = 0;
   for (const p of prospects) {
     const s = p.stage || 'New';
     byStage[s] = (byStage[s] || 0) + 1;
@@ -865,6 +1123,25 @@ function computeStats(prospects) {
     if (s === 'Interested') interested++;
     if (s === 'Rejected') rejected++;
     if (s === 'Lost') lost++;
+
+    if (isDueProspect(p)) dueNow++;
+    if (!p.country) missingCountry++;
+    if (s === 'Snoozed') {
+      snoozed++;
+      const nd = p.next_action_date ? daysBetween(p.next_action_date) : null;
+      // Due (≥0) or coming due within 7 days (nd >= -7).
+      if (nd != null && nd >= -7) snoozedDueThisWeek++;
+      else if (nd == null && isDueProspect(p)) snoozedDueThisWeek++;
+    }
+
+    if (p.replied) {
+      repliedCount++;
+      if (p.reply_type && replyByType[p.reply_type] != null) replyByType[p.reply_type]++;
+      const n = p.replied_at_email;
+      if (n != null && repliesByEmail[n] != null) repliesByEmail[n]++;
+      const es = Number(p.emails_sent);
+      if (Number.isFinite(es) && es > 0) { emailsAtReplySum += es; emailsAtReplyN++; }
+    }
   }
   const total = prospects.length;
   const reachedOut = total - newCount;
@@ -875,6 +1152,11 @@ function computeStats(prospects) {
     interested, booked,
     clients, paymentAwaiting, conversionRate: pct(clients, reachedOut),
     rejected, lost,
+    dueNow, missingCountry, snoozed, snoozedDueThisWeek,
+    replyByType, repliesByEmail, repliedCount,
+    avgEmailsBeforeReply: emailsAtReplyN > 0
+      ? Math.round((emailsAtReplySum / emailsAtReplyN) * 10) / 10
+      : null,
     byStage,
   };
 }
@@ -944,6 +1226,12 @@ function enrichProspect(p) {
     pdf_filename: p.pdf_filename ?? null,
     info: p.info || null,
     review_url: p.review_url || null,
+    replied: p.replied ? 1 : 0,
+    reply_date: p.reply_date ?? null,
+    reply_type: p.reply_type ?? null,
+    replied_at_email: p.replied_at_email ?? null,
+    next_action_date: p.next_action_date ?? null,
+    source: p.source ?? null,
     // Representative IANA timezone for the country, so the automation can
     // compute local send times without its own lookup table. null if the
     // prospect has no country set.
@@ -987,6 +1275,8 @@ function makeBloomtrackApi({
   stages,
   ratings,
   countries,
+  sources,
+  replyTypes,
   autoEmailStages,
   getAllProspects,
   updateProspectById,
@@ -1195,6 +1485,52 @@ function makeBloomtrackApi({
       return p?.review_url || null;
     },
 
+    // ----- Reply tracking / next action / source -----
+    // A reply is an attribute of the lead, independent of stage. Marking a
+    // reply stamps reply_date (today, unless already set) and captures the
+    // email number they were on, so "replies by email" can be reported.
+    async setReplied(email, bool) {
+      const p = findRaw(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      if (bool) {
+        return patchByEmail(email, {
+          replied: 1,
+          reply_date: p.reply_date || todayIso(),
+          replied_at_email: p.replied_at_email ?? getLastSentNumber(p),
+        });
+      }
+      return patchByEmail(email, { replied: 0 });
+    },
+    // Setting a type implies replied=true; null clears the reply.
+    async setReplyType(email, type) {
+      if (type != null && !replyTypes.includes(type)) {
+        throw new Error(`Invalid reply_type: ${type}. Valid: ${replyTypes.join(', ')}`);
+      }
+      const p = findRaw(email);
+      if (!p) throw new Error(`Prospect not found: ${email}`);
+      if (type == null) {
+        return patchByEmail(email, { reply_type: null, replied: 0 });
+      }
+      return patchByEmail(email, {
+        reply_type: type,
+        replied: 1,
+        reply_date: p.reply_date || todayIso(),
+        replied_at_email: p.replied_at_email ?? getLastSentNumber(p),
+      });
+    },
+    async setReplyDate(email, date) {
+      return patchByEmail(email, { reply_date: date || null });
+    },
+    async setNextActionDate(email, date) {
+      return patchByEmail(email, { next_action_date: date || null });
+    },
+    async setSource(email, source) {
+      if (source != null && source !== '' && !sources.includes(source)) {
+        throw new Error(`Invalid source: ${source}. Valid: ${sources.join(', ')}`);
+      }
+      return patchByEmail(email, { source: source || null });
+    },
+
     // ----- UI -----
     refresh,
 
@@ -1202,6 +1538,8 @@ function makeBloomtrackApi({
     stages: [...stages],
     ratings: [...ratings],
     countries: [...countries],
+    sources: [...sources],
+    replyTypes: [...replyTypes],
     // code → IANA timezone, so the automation can time sends per prospect.
     COUNTRY_TIMEZONES: Object.fromEntries(
       Object.entries(COUNTRY_META).map(([code, m]) => [code, m.tz])
@@ -1213,7 +1551,7 @@ function makeBloomtrackApi({
   };
 }
 
-export default function ProspectsApp({ stages, ratings, countries = [] }) {
+export default function ProspectsApp({ stages, ratings, countries = [], sources = [], replyTypes = [] }) {
   // ─── Canonical store ───────────────────────────────────────────────────
   // `allProspects` is the single source of truth. The table renders from a
   // memoized filtered/sorted projection of this array. Writes patch this
@@ -1229,6 +1567,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [ratingChecked, setRatingChecked] = useState(() => new Set(allRatingOpts));
   const [stageChecked, setStageChecked] = useState(() => new Set(allStageOpts));
   const [dueOnly, setDueOnly] = useState(false);
+  const [missingCountryOnly, setMissingCountryOnly] = useState(false);
   const [view, setView] = useState('prospects'); // 'prospects' | 'stats'
   const [seqProspect, setSeqProspect] = useState(null); // row shown in the email-sequence modal
   const [infoModal, setInfoModal] = useState(null); // row shown in the info modal
@@ -1240,7 +1579,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   const [sort, setSort] = useState({ key: 'default', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
   const [quickAdd, setQuickAdd] = useState({
-    name: '', business_name: '', email: '', domain: '', country: '', claude_chat_link: '',
+    name: '', business_name: '', email: '', domain: '', country: '', source: '', claude_chat_link: '',
   });
   const [highlightId, setHighlightId] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
@@ -1416,7 +1755,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
     let rows = allProspects.filter((p) => {
       if (q) {
-        const hay = [p.name, p.business_name, p.email, p.domain, p.stage, p.rating, p.country]
+        const hay = [p.name, p.business_name, p.email, p.domain, p.stage, p.rating, p.country, p.source]
           .map((x) => (x || '').toString().toLowerCase())
           .join(' ');
         if (!hay.includes(q)) return false;
@@ -1429,6 +1768,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         if (!stageChecked.has(p.stage || 'New')) return false;
       }
       if (dueOnly && !isDueProspect(p)) return false;
+      if (missingCountryOnly && p.country) return false;
       return true;
     });
 
@@ -1473,12 +1813,30 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
     if (sort.key === 'default') sorted.sort(defaultCmp);
     else sorted.sort(fieldCmp(sort.key));
     return sorted;
-  }, [allProspects, search, ratingChecked, stageChecked, dueOnly, sort, allRatingOpts.length, allStageOpts.length]);
+  }, [allProspects, search, ratingChecked, stageChecked, dueOnly, missingCountryOnly, sort, allRatingOpts.length, allStageOpts.length]);
 
   const dueCount = useMemo(
     () => allProspects.reduce((n, p) => n + (isDueProspect(p) ? 1 : 0), 0),
     [allProspects]
   );
+
+  // Send cadence at a glance: sent today / yesterday (by last_contact_date),
+  // and due today / tomorrow (by daysUntilDue).
+  const sendStats = useMemo(() => {
+    const today = todayIso();
+    const yesterday = isoShift(-1);
+    let sentToday = 0, sentYesterday = 0, dueToday = 0, dueTomorrow = 0;
+    for (const p of allProspects) {
+      if (p.last_contact_date === today) sentToday++;
+      else if (p.last_contact_date === yesterday) sentYesterday++;
+      const d = daysUntilDue(p);
+      if (d != null) {
+        if (d <= 0) dueToday++;
+        else if (d === 1) dueTomorrow++;
+      }
+    }
+    return { sentToday, sentYesterday, dueToday, dueTomorrow };
+  }, [allProspects]);
 
   // ─── Bridge to window.bloomtrack ───────────────────────────────────────
   // Refs let us hand the API stable closures over the live store + write
@@ -1496,6 +1854,8 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
       stages,
       ratings,
       countries,
+      sources,
+      replyTypes,
       autoEmailStages: AUTO_EMAIL_STAGES,
       getAllProspects: () => getAllRef.current(),
       updateProspectById: (id, patch) => updateProspectByIdRef.current(id, patch),
@@ -1515,12 +1875,13 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         delete window.bloomtrack;
       }
     };
-  }, [stages, ratings, countries]);
+  }, [stages, ratings, countries, sources, replyTypes]);
 
   const hiddenCount =
     (allRatingOpts.length - ratingChecked.size) +
     (allStageOpts.length - stageChecked.size) +
-    (dueOnly ? 1 : 0);
+    (dueOnly ? 1 : 0) +
+    (missingCountryOnly ? 1 : 0);
   const hasActiveFilter = search.length > 0 || hiddenCount > 0;
   const totalCount = allProspects.length;
   const showEmptyState = storeReady && totalCount === 0 && !hasActiveFilter;
@@ -1546,6 +1907,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
   function resetFilters() {
     setSearch('');
     setDueOnly(false);
+    setMissingCountryOnly(false);
     setRatingChecked(new Set(allRatingOpts));
     setStageChecked(new Set(allStageOpts));
   }
@@ -1660,7 +2022,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
 
   async function addProspect(e) {
     e?.preventDefault?.();
-    const { name, business_name, email, domain, country, claude_chat_link } = quickAdd;
+    const { name, business_name, email, domain, country, source, claude_chat_link } = quickAdd;
     if (!name && !business_name && !email && !domain) return;
     try {
       const created = await createProspect({
@@ -1669,11 +2031,12 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         email,
         domain,
         country: country || null,
+        source: source || null,
         claude_chat_link: claude_chat_link.trim() || null,
         rating: '💚', // new prospects default to Strong
         stage: 'New',
       });
-      setQuickAdd({ name: '', business_name: '', email: '', domain: '', country: '', claude_chat_link: '' });
+      setQuickAdd({ name: '', business_name: '', email: '', domain: '', country: '', source: '', claude_chat_link: '' });
       setHighlightId(created.id);
       setTimeout(() => setHighlightId(null), 1800);
     } catch (err) {
@@ -1938,7 +2301,7 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                   ? 'bg-mauve-deep text-white'
                   : 'text-charcoal-2 hover:bg-blush-soft'
               }`}
-              title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (send days 1·3·7·14·21 → Email 1 due after 2d, Email 2 after 4d, Email 3-4 after 7d; Snoozed 30d, Re-warm 60d)'}
+              title={dueOnly ? 'Showing only due prospects — click to clear' : 'Show only prospects due for follow-up (send days 1·3·7·14·21 → Email 1 due after 2d, Email 2 after 4d, Email 3-4 after 7d; Snoozed 30d; or a set Next Action date)'}
             >
               <Icon name="bell" className="w-3.5 h-3.5" />
               <span>Due</span>
@@ -1969,7 +2332,14 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
       </div>
 
       {view === 'stats' ? (
-        <StatsView prospects={allProspects} stages={stages} />
+        <StatsView
+          prospects={allProspects}
+          stages={stages}
+          onShowMissingCountry={() => {
+            setMissingCountryOnly(true);
+            setView('prospects');
+          }}
+        />
       ) : showEmptyState ? (
         <section className="bg-surface border border-line rounded-2xl p-16 text-center shadow-card">
           <div className="inline-flex w-16 h-16 mb-5 rounded-full bg-blush-soft items-center justify-center text-mauve-deep">
@@ -1991,6 +2361,14 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
         </section>
       ) : (
         <>
+          {/* Cadence strip — how the send pace is tracking day to day. */}
+          <div className="mb-3 flex flex-wrap gap-2">
+            <CadenceStat label="Sent today" value={sendStats.sentToday} />
+            <CadenceStat label="Sent yesterday" value={sendStats.sentYesterday} muted />
+            <CadenceStat label="Due today" value={sendStats.dueToday} accent />
+            <CadenceStat label="Due tomorrow" value={sendStats.dueTomorrow} />
+          </div>
+
           {/* Quick-add lives as a separate card above the table so it
               reads like an intentional "new entry" affordance rather
               than a header row of the table. */}
@@ -2039,6 +2417,17 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                 <option value="">Country</option>
                 {countries.map((c) => (
                   <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                value={quickAdd.source}
+                onChange={(e) => setQuickAdd({ ...quickAdd, source: e.target.value })}
+                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white transition text-charcoal"
+                title="Source"
+              >
+                <option value="">Source</option>
+                {sources.map((s) => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
               <input
@@ -2184,6 +2573,13 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                         />
                       </td>
                       <td className="px-2 py-1 align-top">
+                        <SourcePicker
+                          value={p.source}
+                          options={sources}
+                          onChange={(v) => updateProspect(p.id, { source: v })}
+                        />
+                      </td>
+                      <td className="px-2 py-1 align-top">
                         <RatingCell
                           value={p.rating}
                           options={ratings}
@@ -2197,11 +2593,22 @@ export default function ProspectsApp({ stages, ratings, countries = [] }) {
                           onChange={(s) => handleStageChange(p, s)}
                         />
                       </td>
+                      <td className="px-2 py-1 align-top">
+                        <RepliedCell
+                          prospect={p}
+                          replyTypes={replyTypes}
+                          onSet={(type) => updateProspect(p.id, replyPatch(p, type))}
+                        />
+                      </td>
                       <DaysAgoCell value={p.last_contact_date} due={isDueProspect(p)} />
                       <EditableCell
                         value={p.last_contact_date}
                         type="date"
                         onSave={(v) => updateProspect(p.id, { last_contact_date: v || null })}
+                      />
+                      <NextActionCell
+                        value={p.next_action_date}
+                        onSave={(v) => updateProspect(p.id, { next_action_date: v || null })}
                       />
                       <td className="px-2 py-1 align-top">
                         <SeqCell prospect={p} onOpen={() => setSeqProspect(p)} />
@@ -3014,9 +3421,10 @@ function EmailCard({
 
 // Live analytics over the canonical prospect list. Pure derivation via
 // useMemo — recomputes instantly whenever a stage changes, no refetch.
-function StatsView({ prospects, stages }) {
+function StatsView({ prospects, stages, onShowMissingCountry }) {
   const s = useMemo(() => computeStats(prospects), [prospects]);
   const maxStage = Math.max(1, ...stages.map((st) => s.byStage[st] || 0));
+  const maxReplyEmail = Math.max(1, ...Object.values(s.repliesByEmail));
 
   return (
     <div className="space-y-4">
@@ -3032,11 +3440,77 @@ function StatsView({ prospects, stages }) {
         />
       </div>
 
+      {/* Action row — the numbers I work off, not vanity. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Due now / overdue" value={s.dueNow} sub="today's worklist" accent />
+        <StatCard
+          label="Missing country"
+          value={s.missingCountry}
+          sub={s.missingCountry > 0 ? 'click to see them' : 'all set'}
+          onClick={s.missingCountry > 0 ? onShowMissingCountry : undefined}
+          warn={s.missingCountry > 0}
+        />
+        <StatCard label="Snoozed" value={s.snoozed} sub={`${s.snoozedDueThisWeek} due this week`} />
+        <StatCard
+          label="Avg emails before reply"
+          value={s.avgEmailsBeforeReply ?? '—'}
+          sub={s.repliedCount > 0 ? `over ${s.repliedCount} replies` : 'no replies logged'}
+        />
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Interested" value={s.interested} small />
         <StatCard label="Booked calls" value={s.booked} small />
         <StatCard label="Rejected" value={s.rejected} small />
         <StatCard label="Lost" value={s.lost} small />
+      </div>
+
+      {/* Reply outcomes + which touch earns replies. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="bg-surface border border-line rounded-2xl p-5 shadow-card">
+          <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
+            Reply outcomes
+          </div>
+          {s.repliedCount === 0 ? (
+            <p className="text-sm text-muted italic">No replies logged yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-4">
+              {['interested', 'defer', 'decline'].map((t) => {
+                const m = REPLY_TYPE_META[t];
+                return (
+                  <div key={t} className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }} />
+                    <span className="font-mono num-tabular text-2xl text-charcoal">{s.replyByType[t]}</span>
+                    <span className="text-[11px] font-mono uppercase tracking-wide text-muted">{m.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-surface border border-line rounded-2xl p-5 shadow-card">
+          <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted mb-3">
+            Replies by email #
+          </div>
+          <div className="space-y-1.5">
+            {[1, 2, 3, 4, 5].map((n) => {
+              const count = s.repliesByEmail[n] || 0;
+              return (
+                <div key={n} className="flex items-center gap-3">
+                  <span className="w-14 shrink-0 text-xs text-charcoal">Email {n}</span>
+                  <div className="flex-1 h-3.5 rounded bg-paper overflow-hidden">
+                    <div
+                      className="h-full rounded-r bg-mauve"
+                      style={{ width: `${(count / maxReplyEmail) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right font-mono num-tabular text-xs text-charcoal">{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="bg-surface border border-line rounded-2xl p-5 shadow-card">
@@ -3082,28 +3556,57 @@ function StatsView({ prospects, stages }) {
       </div>
 
       <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
-        Response rate = responded ÷ reached out. "Responded" counts anyone who
-        replied — Replied, Interested, Booked, Client, Payment Awaiting,
-        Rejected, and Snoozed. Lost (no reply) and Re-warm don't count.
-        Conversion = Clients ÷ reached out.
+        Due now = leads whose next-action date (or stage window, if unset) is
+        today or past. Response rate = responded ÷ reached out ("Responded"
+        counts Interested, Setup Check, Client, Rejected, Snoozed). Reply
+        outcomes / avg-emails-before-reply come from the structured `replied`
+        fields, so they fill in as you log replies. Conversion = Clients ÷
+        reached out.
       </p>
     </div>
   );
 }
 
-function StatCard({ label, value, sub, accent, small }) {
+// Compact inline stat for the cadence strip above the table.
+function CadenceStat({ label, value, accent, muted }) {
   return (
-    <div className={`bg-surface border rounded-2xl p-4 shadow-card ${accent ? 'border-mauve' : 'border-line'}`}>
+    <div
+      className={`inline-flex items-baseline gap-2 rounded-xl border px-3 py-1.5 bg-surface shadow-card ${
+        accent ? 'border-mauve' : 'border-line'
+      }`}
+    >
+      <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted">{label}</span>
+      <span
+        className={`font-mono num-tabular text-lg ${
+          accent ? 'text-mauve-deep' : muted ? 'text-muted' : 'text-charcoal'
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, accent, small, warn, onClick }) {
+  const clickable = typeof onClick === 'function';
+  const Tag = clickable ? 'button' : 'div';
+  return (
+    <Tag
+      onClick={onClick}
+      className={`text-left w-full bg-surface border rounded-2xl p-4 shadow-card transition ${
+        warn ? 'border-amber-400/70' : accent ? 'border-mauve' : 'border-line'
+      } ${clickable ? 'hover:bg-blush-soft/50 cursor-pointer' : ''}`}
+    >
       <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted">{label}</div>
       <div
         className={`mt-1 font-mono num-tabular ${small ? 'text-2xl' : 'text-4xl'} ${
-          accent ? 'text-mauve-deep' : 'text-charcoal'
+          warn ? 'text-amber-700' : accent ? 'text-mauve-deep' : 'text-charcoal'
         }`}
       >
         {value}
       </div>
       {sub && <div className="mt-0.5 text-[11px] font-mono text-muted">{sub}</div>}
-    </div>
+    </Tag>
   );
 }
 

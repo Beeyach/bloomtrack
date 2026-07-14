@@ -1,4 +1,4 @@
-import { STAGES, RATINGS, COUNTRIES } from '@/lib/db';
+import { STAGES, RATINGS, COUNTRIES, SOURCES, REPLY_TYPES } from '@/lib/db';
 import ProspectsApp from '@/components/ProspectsApp';
 
 // D1 lives in the edge runtime. The page itself doesn't touch the DB,
@@ -10,5 +10,13 @@ export default function Page() {
   // Note: the old version called getDb() here to trigger schema creation on
   // first request. With D1, the schema is applied separately via
   // `wrangler d1 execute` — no per-request setup needed.
-  return <ProspectsApp stages={STAGES} ratings={RATINGS} countries={COUNTRIES} />;
+  return (
+    <ProspectsApp
+      stages={STAGES}
+      ratings={RATINGS}
+      countries={COUNTRIES}
+      sources={SOURCES}
+      replyTypes={REPLY_TYPES}
+    />
+  );
 }

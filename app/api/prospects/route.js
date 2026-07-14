@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, STAGES, RATINGS, COUNTRIES } from '@/lib/db';
+import { getDb, STAGES, RATINGS, COUNTRIES, SOURCES, REPLY_TYPES } from '@/lib/db';
 
 // D1 is only available in the edge runtime on Cloudflare Pages.
 export const runtime = 'edge';
@@ -10,7 +10,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SELECT_COLS =
-  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, created_at, updated_at';
+  'id, name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, replied, reply_date, reply_type, replied_at_email, next_action_date, source, created_at, updated_at';
 
 export async function GET(req) {
   const db = getDb();
@@ -127,6 +127,12 @@ export async function POST(req) {
     pdf_filename = null,
     info = null,
     review_url = null,
+    replied = 0,
+    reply_date = null,
+    reply_type = null,
+    replied_at_email = null,
+    next_action_date = null,
+    source = null,
   } = body || {};
 
   if (stage && !STAGES.includes(stage)) {
@@ -138,12 +144,18 @@ export async function POST(req) {
   if (country && !COUNTRIES.includes(country)) {
     return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
   }
+  if (source && !SOURCES.includes(source)) {
+    return NextResponse.json({ error: 'Invalid source' }, { status: 400 });
+  }
+  if (reply_type && !REPLY_TYPES.includes(reply_type)) {
+    return NextResponse.json({ error: 'Invalid reply_type' }, { status: 400 });
+  }
 
   // Named `result` (not `info`) — `info` is now a bound column value above.
   const result = await db
     .prepare(
-      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO prospects (name, business_name, email, domain, rating, stage, emails_sent, last_contact_date, claude_chat_link, gmail_labels, is_read, country, email_sequence, audit_notes, pdf_filename, info, review_url, replied, reply_date, reply_type, replied_at_email, next_action_date, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       name,
@@ -162,7 +174,13 @@ export async function POST(req) {
       audit_notes,
       pdf_filename,
       info,
-      review_url
+      review_url,
+      replied ? 1 : 0,
+      reply_date,
+      reply_type,
+      replied_at_email == null ? null : Number(replied_at_email),
+      next_action_date,
+      source
     )
     .run();
 
