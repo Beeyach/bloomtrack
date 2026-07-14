@@ -9,16 +9,13 @@ const COLUMNS = [
   { key: 'email',             label: 'Email' },
   { key: 'domain',            label: 'Domain' },
   { key: 'country',           label: 'Country' },
-  { key: 'source',            label: 'Source' },
   { key: 'rating',            label: 'Rating' },
   { key: 'stage',             label: 'Stage' },
-  { key: 'replied',           label: 'Reply' },
   { key: 'days_ago',          label: 'Days' },
   { key: 'last_contact_date', label: 'Last Contact' },
-  { key: 'next_action_date',  label: 'Next Action' },
   { key: 'email_sequence',    label: 'Seq' },
   { key: 'info',              label: 'Info' },
-  { key: 'claude_chat_link',  label: 'Chat' },
+  { key: 'replied',           label: 'Reply' },
 ];
 
 // Countries you email, keyed by the short code stored in the DB. `flag` is
@@ -42,16 +39,13 @@ const COL_DEFAULTS = {
   email: 220,
   domain: 180,
   country: 84,
-  source: 110,
   rating: 70,
   stage: 150,
-  replied: 64,
   days_ago: 80,
   last_contact_date: 120,
-  next_action_date: 120,
   email_sequence: 60,
   info: 54,
-  claude_chat_link: 60,
+  replied: 64,
   __delete: 40,
 };
 const COL_MIN_WIDTH = 36;
@@ -70,6 +64,7 @@ const FILTERS_KEY = 'bloomtrack:filters:v1';
 // adjacent stages never read as the same color at a glance.
 const STAGE_META = {
   New:        { icon: 'sparkle',        bg: '#F4E5E9',     border: '#8E6A8D' },
+  'Social Media': { icon: 'message',    bg: '#F0DBEE',     border: '#9B4A9B' },
   'Email 1':  { icon: 'send',           bg: '#FCEFB0',     border: '#B89400' },
   'Email 2':  { icon: 'send',           bg: '#FBD3AE',     border: '#D9711E' },
   'Email 3':  { icon: 'send',           bg: '#F8C4D2',     border: '#C23B63' },
@@ -197,12 +192,6 @@ function stripProtocol(url) {
   return String(url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '');
 }
 
-function normalizeChatHref(url) {
-  if (!url) return '#';
-  let u = url.trim();
-  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-  return u;
-}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Icon set. Lucide-style strokes, currentColor, 24×24 viewbox so size is
@@ -869,47 +858,6 @@ function PortalMenu({ width = 176, renderTrigger, children }) {
   );
 }
 
-// Where the lead came from. Compact chip that opens a labelled list.
-function SourcePicker({ value, options, onChange }) {
-  return (
-    <PortalMenu
-      width={168}
-      renderTrigger={() => (
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg border border-line hover:bg-blush-soft transition text-xs max-w-full"
-          title={value || 'Set source'}
-        >
-          <span className={`truncate ${value ? 'text-charcoal' : 'text-muted/60'}`}>
-            {value || '—'}
-          </span>
-          <Icon name="chevron-down" className="w-3 h-3 opacity-50 shrink-0" />
-        </button>
-      )}
-    >
-      {(close) => (
-        <>
-          <button
-            onClick={() => { close(); if (value != null) onChange(null); }}
-            className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${!value ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
-          >
-            <span className="text-muted">None</span>
-          </button>
-          {options.map((s) => (
-            <button
-              key={s}
-              onClick={() => { close(); if (s !== value) onChange(s); }}
-              className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${s === value ? 'bg-blush-soft' : 'hover:bg-blush-soft/60'}`}
-            >
-              {s}
-            </button>
-          ))}
-        </>
-      )}
-    </PortalMenu>
-  );
-}
-
 // Reply indicator + setter. A colored dot when replied (by reply_type),
 // a faint outline when not. Opens a picker for the three dispositions.
 function RepliedCell({ prospect, replyTypes, onSet }) {
@@ -961,55 +909,6 @@ function RepliedCell({ prospect, replyTypes, onSet }) {
         </>
       )}
     </PortalMenu>
-  );
-}
-
-// Editable next-action date. Cell tints amber when the date is today or past
-// (overdue), so the daily worklist jumps out.
-function NextActionCell({ value, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? '');
-  const inputRef = useRef(null);
-
-  useEffect(() => { if (!editing) setDraft(value ?? ''); }, [value, editing]);
-  useEffect(() => {
-    if (editing) { inputRef.current?.focus(); try { inputRef.current?.showPicker?.(); } catch {} }
-  }, [editing]);
-
-  function commit() {
-    setEditing(false);
-    const next = draft === '' ? null : draft;
-    if ((value ?? null) !== next) onSave(next);
-  }
-
-  const n = daysBetween(value);
-  const overdue = n != null && n >= 0; // today or past
-
-  return (
-    <td
-      data-tab="1"
-      className={`px-2 py-1 align-top ${overdue ? 'bg-amber-100/60' : ''}`}
-      onClick={() => !editing && setEditing(true)}
-    >
-      {editing ? (
-        <input
-          ref={inputRef}
-          type="date"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commit(); }
-            else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
-          }}
-          className="cell-input text-sm"
-        />
-      ) : (
-        <span className={`cell-display text-sm ${overdue ? 'font-semibold text-amber-800' : ''}`}>
-          {value || <span className="text-muted/60">—</span>}
-        </span>
-      )}
-    </td>
   );
 }
 
@@ -2419,17 +2318,6 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
-              <select
-                value={quickAdd.source}
-                onChange={(e) => setQuickAdd({ ...quickAdd, source: e.target.value })}
-                className="px-3 py-2 text-sm bg-paper border border-line rounded-lg focus:outline-none focus:border-mauve focus:bg-white transition text-charcoal"
-                title="Source"
-              >
-                <option value="">Source</option>
-                {sources.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
               <input
                 type="text"
                 placeholder="Chat link"
@@ -2573,13 +2461,6 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
                         />
                       </td>
                       <td className="px-2 py-1 align-top">
-                        <SourcePicker
-                          value={p.source}
-                          options={sources}
-                          onChange={(v) => updateProspect(p.id, { source: v })}
-                        />
-                      </td>
-                      <td className="px-2 py-1 align-top">
                         <RatingCell
                           value={p.rating}
                           options={ratings}
@@ -2593,22 +2474,11 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
                           onChange={(s) => handleStageChange(p, s)}
                         />
                       </td>
-                      <td className="px-2 py-1 align-top">
-                        <RepliedCell
-                          prospect={p}
-                          replyTypes={replyTypes}
-                          onSet={(type) => updateProspect(p.id, replyPatch(p, type))}
-                        />
-                      </td>
                       <DaysAgoCell value={p.last_contact_date} due={isDueProspect(p)} />
                       <EditableCell
                         value={p.last_contact_date}
                         type="date"
                         onSave={(v) => updateProspect(p.id, { last_contact_date: v || null })}
-                      />
-                      <NextActionCell
-                        value={p.next_action_date}
-                        onSave={(v) => updateProspect(p.id, { next_action_date: v || null })}
                       />
                       <td className="px-2 py-1 align-top">
                         <SeqCell prospect={p} onOpen={() => setSeqProspect(p)} />
@@ -2617,9 +2487,10 @@ export default function ProspectsApp({ stages, ratings, countries = [], sources 
                         <InfoCell prospect={p} onOpen={() => setInfoModal(p)} />
                       </td>
                       <td className="px-2 py-1 align-top">
-                        <ChatCell
-                          value={p.claude_chat_link}
-                          onSave={(v) => updateProspect(p.id, { claude_chat_link: v })}
+                        <RepliedCell
+                          prospect={p}
+                          replyTypes={replyTypes}
+                          onSet={(type) => updateProspect(p.id, replyPatch(p, type))}
                         />
                       </td>
                       <td className="px-2 py-1 align-top text-right">
@@ -3949,81 +3820,6 @@ function RatingCell({ value, options, onChange }) {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function ChatCell({ value, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? '');
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    if (!editing) setDraft(value ?? '');
-  }, [value, editing]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      try { inputRef.current?.select(); } catch {}
-    }
-  }, [editing]);
-
-  function commit() {
-    setEditing(false);
-    const next = draft.trim() === '' ? null : draft.trim();
-    if ((value ?? null) !== next) onSave(next);
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); }
-          else if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false); }
-        }}
-        className="cell-input text-sm"
-        placeholder="Paste chat URL"
-      />
-    );
-  }
-
-  if (!value) {
-    return (
-      <span
-        className="cell-display text-sm text-muted/60 cursor-pointer"
-        onClick={() => setEditing(true)}
-        title="Click to add chat URL"
-      >
-        —
-      </span>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <a
-        href={normalizeChatHref(value)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-mauve-deep hover:bg-blush-soft transition"
-        onClick={(e) => e.stopPropagation()}
-        title={value}
-      >
-        <Icon name="link" className="w-3.5 h-3.5" />
-      </a>
-      <button
-        onClick={() => setEditing(true)}
-        className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-mauve-deep opacity-0 group-hover:opacity-100 transition"
-        title="Edit"
-      >
-        <Icon name="pencil" className="w-3 h-3" />
-      </button>
     </div>
   );
 }
